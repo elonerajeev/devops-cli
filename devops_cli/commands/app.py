@@ -1,0 +1,845 @@
+"""Dynamic App commands for developers.
+
+This module provides dynamic commands that work with any application
+configured by cloud engineers. No hardcoded app names - everything
+is read from configuration.
+
+Usage:
+    devops app list              # List available apps
+    devops app logs <app-name>   # View logs for any app
+    devops app health <app-name> # Check health of any app
+    devops app info <app-name>   # Show app details
+"""
+
+import sys
+import time
+import re
+from datetime import datetime, timedelta
+from typing import Optional, List
+from pathlib import Path
+
+import typer
+from rich.console import Console
+from rich.text import Text
+
+from devops_cli.commands.admin import (
+    load_apps_config,
+    load_aws_config,
+    load_servers_config,
+    load_teams_config,
+    SECRETS_DIR,
+)
+from devops_cli.auth import AuthManager, require_auth, get_current_user
+from devops_cli.utils.output import (
+    success, error, warning, info, header,
+    create_table, status_badge, console as out_console
+)
+
+app = typer.Typer(help="Application commands - View logs, health, and info for configured apps")
+console = Console()
+
+
+# Try to import boto3
+try:
+    import boto3
+    from botocore.exceptions import ClientError, NoCredentialsError
+    BOTO3_AVAILABLE = True
+except ImportError:
+    BOTO3_AVAILABLE = False
+
+
+def get_app_config(app_name: str) -> dict | None:
+    """Get application configuration by name."""
+    config = load_apps_config()
+    return config.get("apps", {}).get(app_name)
+
+
+def get_aws_session(role_name: str = None, region: str = None):
+    """Get AWS session, optionally assuming a role."""
+    if not BOTO3_AVAILABLE:
+        error("boto3 is not installed. Run: pip install boto3")
+        raise typer.Exit(1)
+
+    aws_config = load_aws_config()
+
+    if role_name:
+        role_config = aws_config.get("roles", {}).get(role_name)
+        if not role_config:
+            error(f"AWS role '{role_name}' not found")
+            raise typer.Exit(1)
+
+        role_arn = role_config.get("role_arn")
+        region = region or role_config.get("region") or aws_config.get("default_region", "us-east-1")
+        external_id = role_config.get("external_id")
+
+        # Check for stored credentials
+        creds_file = SECRETS_DIR / f"aws_{role_name}.creds"
+        if creds_file.exists():
+            import json
+            import base64
+            encoded = creds_file.read_text()
+            creds_data = json.loads(base64.b64decode(encoded).decode())
+
+            # Create session with stored credentials
+            session = boto3.Session(
+                aws_access_key_id=creds_data["access_key"],
+                aws_secret_access_key=creds_data["secret_key"],
+                region_name=region,
+            )
+        else:
+            # Use default credentials
+            session = boto3.Session(region_name=region)
+
+        # Assume the role
+        sts = session.client("sts")
+        assume_kwargs = {
+            "RoleArn": role_arn,
+            "RoleSessionName": "devops-cli-session",
+            "DurationSeconds": 3600,
+        }
+        if external_id:
+            assume_kwargs["ExternalId"] = external_id
+
+        try:
+            response = sts.assume_role(**assume_kwargs)
+            credentials = response["Credentials"]
+
+            return boto3.Session(
+                aws_access_key_id=credentials["AccessKeyId"],
+                aws_secret_access_key=credentials["SecretAccessKey"],
+                aws_session_token=credentials["SessionToken"],
+                region_name=region,
+            )
+        except ClientError as e:
+            error(f"Failed to assume role: {e}")
+            raise typer.Exit(1)
+    else:
+        region = region or aws_config.get("default_region", "us-east-1")
+        return boto3.Session(region_name=region)
+
+
+def parse_time_range(time_str: str) -> datetime:
+    """Parse time string like '1h', '30m', '2d' to datetime."""
+    now = datetime.utcnow()
+
+    if time_str.endswith('m'):
+        return now - timedelta(minutes=int(time_str[:-1]))
+    elif time_str.endswith('h'):
+        return now - timedelta(hours=int(time_str[:-1]))
+    elif time_str.endswith('d'):
+        return now - timedelta(days=int(time_str[:-1]))
+    else:
+        return now - timedelta(hours=1)
+
+
+def colorize_log_level(message: str) -> Text:
+    """Colorize log message based on level."""
+    text = Text(message)
+
+    if re.search(r'\b(ERROR|FATAL|CRITICAL)\b', message, re.IGNORECASE):
+        text.stylize("bold red")
+    elif re.search(r'\bWARN(ING)?\b', message, re.IGNORECASE):
+        text.stylize("yellow")
+    elif re.search(r'\bINFO\b', message, re.IGNORECASE):
+        text.stylize("green")
+    elif re.search(r'\bDEBUG\b', message, re.IGNORECASE):
+        text.stylize("dim")
+
+    return text
+
+
+# ==================== List Apps ====================
+
+@app.command("list")
+def list_apps(
+    type_filter: Optional[str] = typer.Option(None, "--type", "-t", help="Filter by app type"),
+):
+    """List all available applications."""
+    config = load_apps_config()
+    apps = config.get("apps", {})
+
+    if not apps:
+        warning("No applications configured")
+        info("Ask your cloud engineer to add applications using: devops admin app-add")
+        return
+
+    header("Available Applications")
+
+    table = create_table(
+        "",
+        [("Name", "cyan"), ("Type", ""), ("Description", "dim"), ("Log Source", "dim")]
+    )
+
+    for name, app_config in apps.items():
+        app_type = app_config.get("type", "unknown")
+
+        # Apply filter
+        if type_filter and app_type != type_filter:
+            continue
+
+        description = app_config.get("description", "-")[:30]
+        log_source = app_config.get("logs", {}).get("type", "-")
+
+        table.add_row(name, app_type, description, log_source)
+
+    console.print(table)
+    info(f"\nUse 'devops app logs <name>' to view logs")
+    info("Use 'devops app info <name>' for details")
+
+
+# ==================== App Info ====================
+
+@app.command("info")
+def app_info(
+    name: str = typer.Argument(..., help="Application name"),
+):
+    """Show detailed information about an application."""
+    app_config = get_app_config(name)
+
+    if not app_config:
+        error(f"Application '{name}' not found")
+        info("Use 'devops app list' to see available applications")
+        return
+
+    header(f"Application: {name}")
+
+    console.print(f"[bold]Type:[/] {app_config.get('type', 'unknown')}")
+    console.print(f"[bold]Description:[/] {app_config.get('description', '-')}")
+    console.print()
+
+    # Type-specific info
+    app_type = app_config.get("type")
+
+    if app_type == "ecs":
+        ecs = app_config.get("ecs", {})
+        console.print("[bold cyan]ECS Configuration:[/]")
+        console.print(f"  Cluster: {ecs.get('cluster', '-')}")
+        console.print(f"  Service: {ecs.get('service', '-')}")
+        console.print(f"  Region: {ecs.get('region', '-')}")
+
+    elif app_type == "ec2":
+        ec2 = app_config.get("ec2", {})
+        console.print("[bold cyan]EC2 Configuration:[/]")
+        console.print(f"  Instance ID: {ec2.get('instance_id', '-')}")
+        console.print(f"  Instance Name: {ec2.get('instance_name', '-')}")
+        console.print(f"  Region: {ec2.get('region', '-')}")
+
+    elif app_type == "lambda":
+        lam = app_config.get("lambda", {})
+        console.print("[bold cyan]Lambda Configuration:[/]")
+        console.print(f"  Function: {lam.get('function_name', '-')}")
+        console.print(f"  Region: {lam.get('region', '-')}")
+
+    elif app_type == "kubernetes":
+        k8s = app_config.get("kubernetes", {})
+        console.print("[bold cyan]Kubernetes Configuration:[/]")
+        console.print(f"  Namespace: {k8s.get('namespace', '-')}")
+        console.print(f"  Deployment: {k8s.get('deployment', '-')}")
+
+    # Logs info
+    logs = app_config.get("logs", {})
+    if logs:
+        console.print()
+        console.print("[bold cyan]Log Configuration:[/]")
+        console.print(f"  Type: {logs.get('type', '-')}")
+        if logs.get("log_group"):
+            console.print(f"  Log Group: {logs.get('log_group')}")
+        if logs.get("path"):
+            console.print(f"  Path: {logs.get('path')}")
+
+    # Health check info
+    health = app_config.get("health", {})
+    if health:
+        console.print()
+        console.print("[bold cyan]Health Check:[/]")
+        console.print(f"  Type: {health.get('type', '-')}")
+        if health.get("url"):
+            console.print(f"  URL: {health.get('url')}")
+
+    console.print()
+    info("View logs: devops app logs " + name)
+    if health:
+        info("Check health: devops app health " + name)
+
+
+# ==================== App Logs ====================
+
+def check_auth():
+    """Check if user is authenticated, show message if not."""
+    auth = AuthManager()
+    if not auth.is_authenticated():
+        error("Authentication required")
+        info("Run: devops auth login")
+        raise typer.Exit(1)
+    return auth.get_current_session()
+
+
+@app.command("logs")
+def app_logs(
+    name: str = typer.Argument(..., help="Application name"),
+    since: str = typer.Option("1h", "--since", "-s", help="Time range (e.g., 30m, 1h, 2d)"),
+    follow: bool = typer.Option(False, "--follow", "-f", help="Follow logs in real-time"),
+    grep: Optional[str] = typer.Option(None, "--grep", "-g", help="Filter by pattern"),
+    limit: int = typer.Option(100, "--limit", "-l", help="Max number of log lines"),
+    level: Optional[str] = typer.Option(None, "--level", help="Filter by level (error, warn, info)"),
+):
+    """View logs for an application."""
+    check_auth()  # Require authentication
+
+    app_config = get_app_config(name)
+
+    if not app_config:
+        error(f"Application '{name}' not found")
+        info("Use 'devops app list' to see available applications")
+        return
+
+    logs_config = app_config.get("logs", {})
+    log_type = logs_config.get("type")
+
+    if not log_type:
+        error(f"No log configuration for '{name}'")
+        return
+
+    # Add level filter to grep
+    if level:
+        level_map = {
+            "error": "ERROR|FATAL|CRITICAL",
+            "warn": "WARN|WARNING",
+            "info": "INFO",
+            "debug": "DEBUG",
+        }
+        level_pattern = level_map.get(level.lower(), level.upper())
+        grep = level_pattern if not grep else f"({grep}).*({level_pattern})|({level_pattern}).*({grep})"
+
+    header(f"Logs: {name}")
+    info(f"Type: {app_config.get('type')} | Since: {since}")
+    if grep:
+        info(f"Filter: {grep}")
+    console.print()
+
+    if log_type == "cloudwatch":
+        _view_cloudwatch_logs(app_config, logs_config, since, follow, grep, limit)
+    elif log_type == "docker":
+        _view_docker_logs(logs_config, since, follow, grep, limit)
+    elif log_type == "kubernetes":
+        _view_kubernetes_logs(app_config, logs_config, since, follow, grep, limit)
+    elif log_type == "file":
+        _view_file_logs(app_config, logs_config, since, follow, grep, limit)
+    else:
+        error(f"Unsupported log type: {log_type}")
+
+
+def _view_cloudwatch_logs(app_config: dict, logs_config: dict, since: str, follow: bool, grep: str, limit: int):
+    """View CloudWatch logs."""
+    log_group = logs_config.get("log_group")
+    if not log_group:
+        error("No log_group configured for this app")
+        return
+
+    # Get region
+    region = logs_config.get("region")
+    if not region:
+        if app_config.get("ecs"):
+            region = app_config["ecs"].get("region")
+        elif app_config.get("ec2"):
+            region = app_config["ec2"].get("region")
+        elif app_config.get("lambda"):
+            region = app_config["lambda"].get("region")
+
+    # Get AWS session
+    aws_role = app_config.get("aws_role")
+    try:
+        session = get_aws_session(aws_role, region)
+        logs_client = session.client('logs')
+    except Exception as e:
+        error(f"AWS connection failed: {e}")
+        return
+
+    start_time = parse_time_range(since)
+    start_timestamp = int(start_time.timestamp() * 1000)
+
+    info(f"Log Group: {log_group}")
+    console.print()
+
+    if follow:
+        _follow_cloudwatch(logs_client, log_group, grep, start_timestamp)
+    else:
+        _fetch_cloudwatch(logs_client, log_group, grep, start_timestamp, limit)
+
+
+def _fetch_cloudwatch(client, log_group: str, grep: str, start_timestamp: int, limit: int):
+    """Fetch CloudWatch logs."""
+    try:
+        kwargs = {
+            "logGroupName": log_group,
+            "startTime": start_timestamp,
+            "limit": limit,
+            "interleaved": True,
+        }
+
+        response = client.filter_log_events(**kwargs)
+        events = response.get("events", [])
+
+        if not events:
+            warning("No log events found")
+            return
+
+        count = 0
+        for event in events:
+            message = event["message"].strip()
+
+            # Apply grep filter
+            if grep and not re.search(grep, message, re.IGNORECASE):
+                continue
+
+            timestamp = datetime.fromtimestamp(event["timestamp"] / 1000)
+            time_str = timestamp.strftime("%H:%M:%S")
+            stream = event.get("logStreamName", "")
+            if len(stream) > 20:
+                stream = stream[:17] + "..."
+
+            console.print(f"[dim]{time_str}[/] [cyan]{stream}[/] ", end="")
+            console.print(colorize_log_level(message))
+            count += 1
+
+        info(f"\nShowing {count} events")
+
+    except ClientError as e:
+        if "ResourceNotFoundException" in str(e):
+            error(f"Log group not found: {log_group}")
+        else:
+            error(f"AWS Error: {e}")
+
+
+def _follow_cloudwatch(client, log_group: str, grep: str, start_timestamp: int):
+    """Follow CloudWatch logs in real-time."""
+    info("Following logs (Ctrl+C to stop)...")
+    console.print()
+
+    last_timestamp = start_timestamp
+    seen_ids = set()
+
+    try:
+        while True:
+            kwargs = {
+                "logGroupName": log_group,
+                "startTime": last_timestamp,
+                "interleaved": True,
+            }
+
+            response = client.filter_log_events(**kwargs)
+
+            for event in response.get("events", []):
+                event_id = event["eventId"]
+                if event_id in seen_ids:
+                    continue
+
+                seen_ids.add(event_id)
+                message = event["message"].strip()
+
+                # Apply grep filter
+                if grep and not re.search(grep, message, re.IGNORECASE):
+                    continue
+
+                timestamp = datetime.fromtimestamp(event["timestamp"] / 1000)
+                time_str = timestamp.strftime("%H:%M:%S")
+
+                console.print(f"[dim]{time_str}[/] ", end="")
+                console.print(colorize_log_level(message))
+
+                last_timestamp = max(last_timestamp, event["timestamp"])
+
+            # Limit memory
+            if len(seen_ids) > 10000:
+                seen_ids = set(list(seen_ids)[-5000:])
+
+            time.sleep(2)
+
+    except KeyboardInterrupt:
+        console.print("\n")
+        info("Stopped")
+    except ClientError as e:
+        error(f"AWS Error: {e}")
+
+
+def _view_docker_logs(logs_config: dict, since: str, follow: bool, grep: str, limit: int):
+    """View Docker container logs."""
+    import subprocess
+
+    container = logs_config.get("container")
+    if not container:
+        error("No container configured")
+        return
+
+    cmd = ["docker", "logs", "--tail", str(limit)]
+    if follow:
+        cmd.append("-f")
+
+    # Convert since to docker format
+    if since.endswith("m"):
+        cmd.extend(["--since", f"{since[:-1]}m"])
+    elif since.endswith("h"):
+        cmd.extend(["--since", f"{since[:-1]}h"])
+    elif since.endswith("d"):
+        cmd.extend(["--since", f"{int(since[:-1]) * 24}h"])
+
+    cmd.append(container)
+
+    try:
+        if grep:
+            # Pipe through grep
+            p1 = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            p2 = subprocess.Popen(["grep", "-i", grep], stdin=p1.stdout, stdout=sys.stdout)
+            p2.wait()
+        else:
+            subprocess.run(cmd)
+    except FileNotFoundError:
+        error("Docker not installed")
+    except KeyboardInterrupt:
+        console.print("\n")
+        info("Stopped")
+
+
+def _view_kubernetes_logs(app_config: dict, logs_config: dict, since: str, follow: bool, grep: str, limit: int):
+    """View Kubernetes pod logs."""
+    import subprocess
+
+    k8s = app_config.get("kubernetes", {})
+    namespace = k8s.get("namespace", "default")
+    deployment = k8s.get("deployment")
+    container = k8s.get("container")
+
+    if not deployment:
+        error("No deployment configured")
+        return
+
+    cmd = ["kubectl", "logs", f"--tail={limit}", "-n", namespace]
+
+    if follow:
+        cmd.append("-f")
+
+    if container:
+        cmd.extend(["-c", container])
+
+    # Use deployment selector
+    cmd.extend(["-l", f"app={deployment}"])
+
+    try:
+        if grep:
+            p1 = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            p2 = subprocess.Popen(["grep", "-i", grep], stdin=p1.stdout, stdout=sys.stdout)
+            p2.wait()
+        else:
+            subprocess.run(cmd)
+    except FileNotFoundError:
+        error("kubectl not installed")
+    except KeyboardInterrupt:
+        console.print("\n")
+        info("Stopped")
+
+
+def _view_file_logs(app_config: dict, logs_config: dict, since: str, follow: bool, grep: str, limit: int):
+    """View file logs (via SSH if server specified)."""
+    import subprocess
+
+    log_path = logs_config.get("path")
+    server_name = logs_config.get("server")
+
+    if not log_path:
+        error("No log path configured")
+        return
+
+    if server_name:
+        # Get server config
+        servers_config = load_servers_config()
+        server = servers_config.get("servers", {}).get(server_name)
+
+        if not server:
+            error(f"Server '{server_name}' not found")
+            return
+
+        # Build SSH command
+        host = server["host"]
+        user = server.get("user", "root")
+        port = server.get("port", 22)
+        key = server.get("key", "~/.ssh/id_rsa")
+
+        tail_cmd = f"tail -{limit}" + ("f" if follow else "") + f" {log_path}"
+        if grep:
+            tail_cmd += f" | grep -i '{grep}'"
+
+        ssh_cmd = ["ssh", "-i", str(Path(key).expanduser()), "-p", str(port), f"{user}@{host}", tail_cmd]
+
+        try:
+            subprocess.run(ssh_cmd)
+        except KeyboardInterrupt:
+            console.print("\n")
+            info("Stopped")
+    else:
+        # Local file
+        cmd = ["tail", f"-{limit}"]
+        if follow:
+            cmd.append("-f")
+        cmd.append(log_path)
+
+        try:
+            if grep:
+                p1 = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+                p2 = subprocess.Popen(["grep", "-i", grep], stdin=p1.stdout, stdout=sys.stdout)
+                p2.wait()
+            else:
+                subprocess.run(cmd)
+        except KeyboardInterrupt:
+            console.print("\n")
+            info("Stopped")
+
+
+# ==================== App Health ====================
+
+@app.command("health")
+def app_health(
+    name: Optional[str] = typer.Argument(None, help="Application name (or check all)"),
+):
+    """Check health of an application (or all apps)."""
+    import requests
+    import socket
+
+    config = load_apps_config()
+    apps = config.get("apps", {})
+
+    if not apps:
+        warning("No applications configured")
+        return
+
+    # If specific app
+    if name:
+        if name not in apps:
+            error(f"Application '{name}' not found")
+            return
+        apps = {name: apps[name]}
+
+    header("Application Health")
+
+    table = create_table(
+        "",
+        [("Application", "cyan"), ("Status", ""), ("Latency", "dim"), ("Details", "dim")]
+    )
+
+    for app_name, app_config in apps.items():
+        health_config = app_config.get("health", {})
+
+        if not health_config:
+            table.add_row(app_name, "[dim]No health check[/]", "-", "-")
+            continue
+
+        health_type = health_config.get("type")
+        result = {"healthy": False, "message": "Unknown"}
+
+        start = time.time()
+
+        if health_type == "http":
+            url = health_config.get("url")
+            expected = health_config.get("expected_status", 200)
+
+            try:
+                resp = requests.get(url, timeout=10)
+                latency = (time.time() - start) * 1000
+                result = {
+                    "healthy": resp.status_code == expected,
+                    "latency": latency,
+                    "message": f"HTTP {resp.status_code}",
+                }
+            except requests.Timeout:
+                result = {"healthy": False, "message": "Timeout"}
+            except requests.ConnectionError:
+                result = {"healthy": False, "message": "Connection refused"}
+            except Exception as e:
+                result = {"healthy": False, "message": str(e)[:30]}
+
+        elif health_type == "tcp":
+            host = health_config.get("host")
+            port = health_config.get("port")
+
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(5)
+                sock.connect((host, port))
+                sock.close()
+                latency = (time.time() - start) * 1000
+                result = {"healthy": True, "latency": latency, "message": "Port open"}
+            except socket.timeout:
+                result = {"healthy": False, "message": "Timeout"}
+            except socket.error:
+                result = {"healthy": False, "message": "Port closed"}
+
+        elif health_type == "command":
+            import subprocess
+            command = health_config.get("command")
+
+            try:
+                proc = subprocess.run(command, shell=True, capture_output=True, timeout=30)
+                latency = (time.time() - start) * 1000
+                result = {
+                    "healthy": proc.returncode == 0,
+                    "latency": latency,
+                    "message": "OK" if proc.returncode == 0 else f"Exit {proc.returncode}",
+                }
+            except subprocess.TimeoutExpired:
+                result = {"healthy": False, "message": "Timeout"}
+            except Exception as e:
+                result = {"healthy": False, "message": str(e)[:30]}
+
+        status = "healthy" if result.get("healthy") else "unhealthy"
+        latency_str = f"{result.get('latency', 0):.0f}ms" if result.get("latency") else "-"
+
+        table.add_row(
+            app_name,
+            status_badge(status),
+            latency_str,
+            result.get("message", "-")
+        )
+
+    console.print(table)
+
+
+# ==================== App Errors ====================
+
+@app.command("errors")
+def app_errors(
+    name: Optional[str] = typer.Argument(None, help="Application name (or check all)"),
+    since: str = typer.Option("6h", "--since", "-s", help="Time range"),
+):
+    """View error logs from applications."""
+    check_auth()  # Require authentication
+
+    # Use the logs command with error filter
+    config = load_apps_config()
+    apps = config.get("apps", {})
+
+    if not apps:
+        warning("No applications configured")
+        return
+
+    if name:
+        if name not in apps:
+            error(f"Application '{name}' not found")
+            return
+        apps = {name: apps[name]}
+
+    header("Error Logs")
+
+    for app_name, app_config in apps.items():
+        logs_config = app_config.get("logs", {})
+        log_type = logs_config.get("type")
+
+        if log_type != "cloudwatch":
+            continue
+
+        console.print(f"\n[bold cyan]{app_name}[/]")
+        console.print("-" * 40)
+
+        try:
+            log_group = logs_config.get("log_group")
+            region = logs_config.get("region")
+            aws_role = app_config.get("aws_role")
+
+            session = get_aws_session(aws_role, region)
+            logs_client = session.client('logs')
+
+            start_time = parse_time_range(since)
+            start_timestamp = int(start_time.timestamp() * 1000)
+
+            response = logs_client.filter_log_events(
+                logGroupName=log_group,
+                startTime=start_timestamp,
+                filterPattern="?ERROR ?FATAL ?CRITICAL ?Exception",
+                limit=20,
+            )
+
+            events = response.get("events", [])
+
+            if not events:
+                success("No errors found!")
+            else:
+                warning(f"Found {len(events)} errors")
+                for event in events[:10]:
+                    timestamp = datetime.fromtimestamp(event["timestamp"] / 1000)
+                    message = event["message"].strip()[:150]
+                    console.print(f"[dim]{timestamp.strftime('%H:%M:%S')}[/] [red]{message}[/]")
+
+        except Exception as e:
+            error(f"Failed to fetch: {e}")
+
+    console.print()
+
+
+# ==================== Quick Search ====================
+
+@app.command("search")
+def app_search(
+    pattern: str = typer.Argument(..., help="Search pattern"),
+    name: Optional[str] = typer.Option(None, "--app", "-a", help="Specific app (or search all)"),
+    since: str = typer.Option("1h", "--since", "-s", help="Time range"),
+):
+    """Search logs across applications."""
+    check_auth()  # Require authentication
+
+    config = load_apps_config()
+    apps = config.get("apps", {})
+
+    if not apps:
+        warning("No applications configured")
+        return
+
+    if name:
+        if name not in apps:
+            error(f"Application '{name}' not found")
+            return
+        apps = {name: apps[name]}
+
+    header(f"Searching: {pattern}")
+
+    total_matches = 0
+
+    for app_name, app_config in apps.items():
+        logs_config = app_config.get("logs", {})
+        log_type = logs_config.get("type")
+
+        if log_type != "cloudwatch":
+            continue
+
+        try:
+            log_group = logs_config.get("log_group")
+            aws_role = app_config.get("aws_role")
+
+            session = get_aws_session(aws_role)
+            logs_client = session.client('logs')
+
+            start_time = parse_time_range(since)
+            start_timestamp = int(start_time.timestamp() * 1000)
+
+            response = logs_client.filter_log_events(
+                logGroupName=log_group,
+                startTime=start_timestamp,
+                filterPattern=pattern,
+                limit=30,
+            )
+
+            events = response.get("events", [])
+
+            if events:
+                console.print(f"\n[bold cyan]{app_name}[/] ({len(events)} matches)")
+                console.print("-" * 40)
+
+                for event in events[:10]:
+                    timestamp = datetime.fromtimestamp(event["timestamp"] / 1000)
+                    message = event["message"].strip()[:120]
+                    console.print(f"[dim]{timestamp.strftime('%H:%M:%S')}[/] {message}")
+
+                total_matches += len(events)
+
+        except Exception as e:
+            warning(f"{app_name}: Failed - {e}")
+
+    console.print()
+    info(f"Total: {total_matches} matches")

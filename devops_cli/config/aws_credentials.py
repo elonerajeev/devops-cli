@@ -1,0 +1,188 @@
+"""Secure AWS credentials management for DevOps CLI.
+
+Admin stores AWS credentials (Access Key + Secret Key) directly in CLI config.
+These credentials are encrypted and used for all AWS operations.
+No dependency on ~/.aws/credentials or AWS CLI installation.
+"""
+
+import json
+import base64
+import hashlib
+from pathlib import Path
+from typing import Optional, Dict, Tuple
+from cryptography.fernet import Fernet
+
+
+ADMIN_DIR = Path.home() / ".devops-cli"
+AWS_CREDS_FILE = ADMIN_DIR / ".aws_credentials.enc"
+AWS_KEY_FILE = ADMIN_DIR / ".aws_key"
+
+
+def _get_or_create_encryption_key() -> bytes:
+    """Get or create encryption key for AWS credentials."""
+    ADMIN_DIR.mkdir(parents=True, exist_ok=True)
+
+    if AWS_KEY_FILE.exists():
+        with open(AWS_KEY_FILE, 'rb') as f:
+            return f.read()
+
+    # Generate new key
+    key = Fernet.generate_key()
+    AWS_KEY_FILE.write_bytes(key)
+    AWS_KEY_FILE.chmod(0o600)  # Read/write only for owner
+    return key
+
+
+def save_aws_credentials(
+    access_key: str,
+    secret_key: str,
+    region: str,
+    description: str = "DevOps CLI AWS Credentials"
+) -> bool:
+    """
+    Save AWS credentials securely (encrypted).
+
+    Args:
+        access_key: AWS Access Key ID
+        secret_key: AWS Secret Access Key
+        region: AWS region (e.g., ap-south-1)
+        description: Description of these credentials
+
+    Returns:
+        True if saved successfully
+    """
+    try:
+        # Encrypt credentials
+        key = _get_or_create_encryption_key()
+        fernet = Fernet(key)
+
+        credentials = {
+            "access_key": access_key,
+            "secret_key": secret_key,
+            "region": region,
+            "description": description
+        }
+
+        encrypted_data = fernet.encrypt(json.dumps(credentials).encode())
+
+        # Save encrypted file
+        ADMIN_DIR.mkdir(parents=True, exist_ok=True)
+        AWS_CREDS_FILE.write_bytes(encrypted_data)
+        AWS_CREDS_FILE.chmod(0o600)  # Read/write only for owner
+
+        return True
+
+    except Exception as e:
+        print(f"Error saving credentials: {e}")
+        return False
+
+
+def load_aws_credentials() -> Optional[Dict[str, str]]:
+    """
+    Load and decrypt AWS credentials.
+
+    Returns:
+        Dict with 'access_key', 'secret_key', 'region', 'description'
+        or None if not configured
+    """
+    if not AWS_CREDS_FILE.exists():
+        return None
+
+    try:
+        key = _get_or_create_encryption_key()
+        fernet = Fernet(key)
+
+        encrypted_data = AWS_CREDS_FILE.read_bytes()
+        decrypted_data = fernet.decrypt(encrypted_data)
+
+        credentials = json.loads(decrypted_data.decode())
+        return credentials
+
+    except Exception as e:
+        print(f"Error loading credentials: {e}")
+        return None
+
+
+def validate_aws_credentials(access_key: str, secret_key: str, region: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validate AWS credentials by making a test API call.
+
+    Returns:
+        (is_valid, error_message)
+    """
+    try:
+        import boto3
+        from botocore.exceptions import ClientError, NoCredentialsError
+
+        # Create session with explicit credentials
+        session = boto3.Session(
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name=region
+        )
+
+        # Test with STS GetCallerIdentity (always allowed)
+        sts = session.client('sts')
+        identity = sts.get_caller_identity()
+
+        # Test CloudWatch Logs access
+        logs = session.client('logs')
+        try:
+            logs.describe_log_groups(limit=1)
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code == 'AccessDeniedException':
+                return False, "Credentials lack CloudWatch Logs permissions. Need: logs:DescribeLogGroups, logs:FilterLogEvents"
+            else:
+                return False, f"AWS Error: {e.response['Error']['Message']}"
+
+        return True, None
+
+    except NoCredentialsError:
+        return False, "Invalid credentials"
+    except ClientError as e:
+        return False, f"AWS Error: {e.response['Error']['Message']}"
+    except Exception as e:
+        return False, f"Error: {str(e)}"
+
+
+def delete_aws_credentials() -> bool:
+    """Delete stored AWS credentials."""
+    try:
+        if AWS_CREDS_FILE.exists():
+            AWS_CREDS_FILE.unlink()
+        if AWS_KEY_FILE.exists():
+            AWS_KEY_FILE.unlink()
+        return True
+    except Exception:
+        return False
+
+
+def credentials_exist() -> bool:
+    """Check if AWS credentials are configured."""
+    return AWS_CREDS_FILE.exists()
+
+
+def get_credentials_info() -> Optional[Dict[str, str]]:
+    """
+    Get non-sensitive info about stored credentials.
+
+    Returns:
+        Dict with 'region', 'description', 'access_key_preview' (masked)
+    """
+    creds = load_aws_credentials()
+    if not creds:
+        return None
+
+    # Mask access key (show only first 4 and last 4 chars)
+    access_key = creds.get("access_key", "")
+    if len(access_key) > 8:
+        masked_key = f"{access_key[:4]}...{access_key[-4:]}"
+    else:
+        masked_key = "****"
+
+    return {
+        "region": creds.get("region", "unknown"),
+        "description": creds.get("description", ""),
+        "access_key_preview": masked_key
+    }

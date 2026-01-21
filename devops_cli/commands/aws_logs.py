@@ -1,0 +1,906 @@
+"""AWS Logs - CloudWatch, ECS, and EC2 log viewing for developers."""
+
+import sys
+import time
+import re
+from datetime import datetime, timedelta
+from typing import Optional, List
+from pathlib import Path
+
+import typer
+from rich.console import Console
+from rich.live import Live
+from rich.table import Table
+from rich.panel import Panel
+from rich.syntax import Syntax
+from rich.text import Text
+
+from devops_cli.config.settings import load_config
+from devops_cli.config.aws_credentials import load_aws_credentials
+from devops_cli.utils.output import (
+    success, error, warning, info, header,
+    create_table, status_badge, console as out_console
+)
+
+app = typer.Typer(help="AWS Logs - View CloudWatch, ECS, and EC2 logs securely")
+console = Console()
+
+# Try to import boto3
+try:
+    import boto3
+    from botocore.exceptions import ClientError, NoCredentialsError, ProfileNotFound
+    BOTO3_AVAILABLE = True
+except ImportError:
+    BOTO3_AVAILABLE = False
+
+
+def get_aws_session(region: Optional[str] = None):
+    """
+    Get AWS session using stored credentials.
+
+    Does NOT use ~/.aws/credentials or environment variables.
+    Only uses credentials configured via: devops admin aws-configure
+    """
+    if not BOTO3_AVAILABLE:
+        error("boto3 is not installed. Run: pip install boto3")
+        raise typer.Exit(1)
+
+    # Load credentials from secure storage
+    creds = load_aws_credentials()
+
+    if not creds:
+        error("AWS credentials not configured")
+        info("Ask your admin to configure AWS access with:")
+        info("  devops admin aws-configure")
+        raise typer.Exit(1)
+
+    # Use explicit credentials (NOT boto3's default credential chain)
+    try:
+        session = boto3.Session(
+            aws_access_key_id=creds['access_key'],
+            aws_secret_access_key=creds['secret_key'],
+            region_name=region or creds['region']
+        )
+        return session
+    except Exception as e:
+        error(f"Failed to create AWS session: {e}")
+        info("Contact your admin to reconfigure AWS credentials")
+        raise typer.Exit(1)
+
+
+def parse_time_range(time_str: str) -> datetime:
+    """Parse time string like '1h', '30m', '2d' to datetime."""
+    now = datetime.utcnow()
+
+    if time_str.endswith('m'):
+        minutes = int(time_str[:-1])
+        return now - timedelta(minutes=minutes)
+    elif time_str.endswith('h'):
+        hours = int(time_str[:-1])
+        return now - timedelta(hours=hours)
+    elif time_str.endswith('d'):
+        days = int(time_str[:-1])
+        return now - timedelta(days=days)
+    else:
+        # Try parsing as ISO format
+        try:
+            return datetime.fromisoformat(time_str)
+        except ValueError:
+            return now - timedelta(hours=1)
+
+
+def colorize_log_level(message: str) -> Text:
+    """Colorize log message based on level."""
+    text = Text(message)
+
+    # Common log level patterns
+    if re.search(r'\b(ERROR|FATAL|CRITICAL)\b', message, re.IGNORECASE):
+        text.stylize("bold red")
+    elif re.search(r'\bWARN(ING)?\b', message, re.IGNORECASE):
+        text.stylize("yellow")
+    elif re.search(r'\bINFO\b', message, re.IGNORECASE):
+        text.stylize("green")
+    elif re.search(r'\bDEBUG\b', message, re.IGNORECASE):
+        text.stylize("dim")
+
+    return text
+
+
+# ==================== CloudWatch Commands ====================
+
+@app.command("cloudwatch")
+def cloudwatch_logs(
+    log_group: str = typer.Argument(..., help="CloudWatch log group name"),
+    stream: Optional[str] = typer.Option(None, "--stream", "-s", help="Specific log stream"),
+    since: str = typer.Option("1h", "--since", help="Time range (e.g., 30m, 1h, 2d)"),
+    filter_pattern: Optional[str] = typer.Option(None, "--filter", "-f", help="CloudWatch filter pattern"),
+    grep: Optional[str] = typer.Option(None, "--grep", "-g", help="Grep pattern to highlight"),
+    limit: int = typer.Option(100, "--limit", "-l", help="Max number of events"),
+    follow: bool = typer.Option(False, "--follow", "-F", help="Follow logs in real-time"),
+    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
+):
+    """View CloudWatch logs."""
+    session = get_aws_session(region)
+    logs_client = session.client('logs')
+
+    start_time = parse_time_range(since)
+    start_timestamp = int(start_time.timestamp() * 1000)
+
+    header(f"CloudWatch Logs: {log_group}")
+    info(f"Since: {start_time.strftime('%Y-%m-%d %H:%M:%S')} UTC")
+    if filter_pattern:
+        info(f"Filter: {filter_pattern}")
+    console.print()
+
+    try:
+        if follow:
+            _follow_cloudwatch_logs(logs_client, log_group, stream, filter_pattern, grep, start_timestamp)
+        else:
+            _fetch_cloudwatch_logs(logs_client, log_group, stream, filter_pattern, grep, start_timestamp, limit)
+    except ClientError as e:
+        error(f"AWS Error: {e.response['Error']['Message']}")
+    except KeyboardInterrupt:
+        console.print("\n")
+        info("Stopped")
+
+
+def _fetch_cloudwatch_logs(client, log_group, stream, filter_pattern, grep, start_timestamp, limit):
+    """Fetch CloudWatch logs."""
+    kwargs = {
+        "logGroupName": log_group,
+        "startTime": start_timestamp,
+        "limit": limit,
+        "interleaved": True,
+    }
+
+    if stream:
+        kwargs["logStreamNames"] = [stream]
+
+    if filter_pattern:
+        kwargs["filterPattern"] = filter_pattern
+
+    try:
+        response = client.filter_log_events(**kwargs)
+        events = response.get("events", [])
+
+        if not events:
+            warning("No log events found")
+            return
+
+        for event in events:
+            timestamp = datetime.fromtimestamp(event["timestamp"] / 1000)
+            message = event["message"].strip()
+
+            # Apply grep filter
+            if grep and grep.lower() not in message.lower():
+                continue
+
+            time_str = timestamp.strftime("%H:%M:%S")
+            stream_name = event.get("logStreamName", "")[:20]
+
+            console.print(f"[dim]{time_str}[/] [cyan]{stream_name}[/] ", end="")
+            console.print(colorize_log_level(message))
+
+        info(f"\nShowing {len(events)} events")
+
+    except ClientError as e:
+        if "ResourceNotFoundException" in str(e):
+            error(f"Log group '{log_group}' not found")
+        else:
+            raise
+
+
+def _follow_cloudwatch_logs(client, log_group, stream, filter_pattern, grep, start_timestamp):
+    """Follow CloudWatch logs in real-time."""
+    info("Following logs (Ctrl+C to stop)...\n")
+
+    last_timestamp = start_timestamp
+    seen_event_ids = set()
+
+    while True:
+        kwargs = {
+            "logGroupName": log_group,
+            "startTime": last_timestamp,
+            "interleaved": True,
+        }
+
+        if stream:
+            kwargs["logStreamNames"] = [stream]
+
+        if filter_pattern:
+            kwargs["filterPattern"] = filter_pattern
+
+        try:
+            response = client.filter_log_events(**kwargs)
+            events = response.get("events", [])
+
+            for event in events:
+                event_id = event["eventId"]
+                if event_id in seen_event_ids:
+                    continue
+
+                seen_event_ids.add(event_id)
+                timestamp = datetime.fromtimestamp(event["timestamp"] / 1000)
+                message = event["message"].strip()
+
+                # Apply grep filter
+                if grep and grep.lower() not in message.lower():
+                    continue
+
+                time_str = timestamp.strftime("%H:%M:%S")
+                stream_name = event.get("logStreamName", "")[:20]
+
+                console.print(f"[dim]{time_str}[/] [cyan]{stream_name}[/] ", end="")
+                console.print(colorize_log_level(message))
+
+                last_timestamp = max(last_timestamp, event["timestamp"])
+
+            # Limit memory usage
+            if len(seen_event_ids) > 10000:
+                seen_event_ids = set(list(seen_event_ids)[-5000:])
+
+        except ClientError:
+            pass
+
+        time.sleep(2)
+
+
+@app.command("groups")
+def list_log_groups(
+    prefix: Optional[str] = typer.Option(None, "--prefix", "-p", help="Filter by prefix"),
+    
+    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
+):
+    """List CloudWatch log groups."""
+    session = get_aws_session(region)
+    logs_client = session.client('logs')
+
+    header("CloudWatch Log Groups")
+
+    try:
+        kwargs = {}
+        if prefix:
+            kwargs["logGroupNamePrefix"] = prefix
+
+        paginator = logs_client.get_paginator('describe_log_groups')
+        log_groups = []
+
+        for page in paginator.paginate(**kwargs):
+            log_groups.extend(page.get("logGroups", []))
+
+        if not log_groups:
+            warning("No log groups found")
+            return
+
+        table = create_table(
+            "",
+            [("Log Group", "cyan"), ("Size", ""), ("Retention", "dim"), ("Created", "dim")]
+        )
+
+        for lg in log_groups[:50]:  # Limit display
+            name = lg["logGroupName"]
+            size_bytes = lg.get("storedBytes", 0)
+            size = f"{size_bytes / 1024 / 1024:.1f} MB" if size_bytes > 0 else "-"
+            retention = lg.get("retentionInDays", "Never")
+            created = datetime.fromtimestamp(lg["creationTime"] / 1000).strftime("%Y-%m-%d")
+
+            table.add_row(name, size, str(retention) + " days" if retention != "Never" else "Never", created)
+
+        console.print(table)
+        info(f"\nTotal: {len(log_groups)} log groups")
+
+    except ClientError as e:
+        error(f"AWS Error: {e.response['Error']['Message']}")
+
+
+@app.command("streams")
+def list_log_streams(
+    log_group: str = typer.Argument(..., help="Log group name"),
+    prefix: Optional[str] = typer.Option(None, "--prefix", "-p", help="Filter by prefix"),
+    
+    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
+):
+    """List log streams in a log group."""
+    session = get_aws_session(region)
+    logs_client = session.client('logs')
+
+    header(f"Log Streams: {log_group}")
+
+    try:
+        kwargs = {
+            "logGroupName": log_group,
+            "orderBy": "LastEventTime",
+            "descending": True,
+            "limit": 50,
+        }
+
+        if prefix:
+            kwargs["logStreamNamePrefix"] = prefix
+
+        response = logs_client.describe_log_streams(**kwargs)
+        streams = response.get("logStreams", [])
+
+        if not streams:
+            warning("No log streams found")
+            return
+
+        table = create_table(
+            "",
+            [("Stream", "cyan"), ("Last Event", ""), ("Size", "dim")]
+        )
+
+        for stream in streams:
+            name = stream["logStreamName"]
+            if len(name) > 60:
+                name = name[:57] + "..."
+
+            last_event = stream.get("lastEventTimestamp")
+            if last_event:
+                last_event = datetime.fromtimestamp(last_event / 1000).strftime("%Y-%m-%d %H:%M")
+            else:
+                last_event = "-"
+
+            size = stream.get("storedBytes", 0)
+            size_str = f"{size / 1024:.1f} KB" if size > 0 else "-"
+
+            table.add_row(name, last_event, size_str)
+
+        console.print(table)
+
+    except ClientError as e:
+        error(f"AWS Error: {e.response['Error']['Message']}")
+
+
+# ==================== ECS Commands ====================
+
+@app.command("ecs")
+def ecs_logs(
+    service: str = typer.Argument(..., help="ECS service name or task ID"),
+    cluster: Optional[str] = typer.Option(None, "--cluster", "-c", help="ECS cluster name"),
+    since: str = typer.Option("1h", "--since", help="Time range"),
+    grep: Optional[str] = typer.Option(None, "--grep", "-g", help="Filter pattern"),
+    follow: bool = typer.Option(False, "--follow", "-F", help="Follow logs"),
+    
+    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
+):
+    """View ECS service/task logs from CloudWatch."""
+    session = get_aws_session(region)
+    ecs_client = session.client('ecs')
+    logs_client = session.client('logs')
+
+    config = load_config()
+    aws_config = config.get("aws", {})
+
+    # Get cluster from config if not provided
+    if not cluster:
+        cluster = aws_config.get("ecs_cluster")
+        if not cluster:
+            error("ECS cluster not specified. Use --cluster or configure aws.ecs_cluster")
+            return
+
+    header(f"ECS Logs: {service}")
+    info(f"Cluster: {cluster}")
+
+    try:
+        # Get service details to find log configuration
+        response = ecs_client.describe_services(
+            cluster=cluster,
+            services=[service]
+        )
+
+        if not response["services"]:
+            error(f"Service '{service}' not found in cluster '{cluster}'")
+            return
+
+        svc = response["services"][0]
+        task_def_arn = svc["taskDefinition"]
+
+        # Get task definition to find log group
+        task_def = ecs_client.describe_task_definition(taskDefinition=task_def_arn)
+        container_defs = task_def["taskDefinition"]["containerDefinitions"]
+
+        # Find log configuration
+        log_group = None
+        for container in container_defs:
+            log_config = container.get("logConfiguration", {})
+            if log_config.get("logDriver") == "awslogs":
+                log_group = log_config["options"].get("awslogs-group")
+                stream_prefix = log_config["options"].get("awslogs-stream-prefix", "")
+                break
+
+        if not log_group:
+            error("No CloudWatch log configuration found for this service")
+            return
+
+        info(f"Log Group: {log_group}")
+        console.print()
+
+        # Now fetch logs from CloudWatch
+        start_time = parse_time_range(since)
+        start_timestamp = int(start_time.timestamp() * 1000)
+
+        if follow:
+            _follow_cloudwatch_logs(logs_client, log_group, None, None, grep, start_timestamp)
+        else:
+            _fetch_cloudwatch_logs(logs_client, log_group, None, None, grep, start_timestamp, 200)
+
+    except ClientError as e:
+        error(f"AWS Error: {e.response['Error']['Message']}")
+
+
+@app.command("ecs-tasks")
+def list_ecs_tasks(
+    service: str = typer.Argument(..., help="ECS service name"),
+    cluster: Optional[str] = typer.Option(None, "--cluster", "-c", help="ECS cluster"),
+    
+    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
+):
+    """List running ECS tasks for a service."""
+    session = get_aws_session(region)
+    ecs_client = session.client('ecs')
+
+    config = load_config()
+    cluster = cluster or config.get("aws", {}).get("ecs_cluster")
+
+    if not cluster:
+        error("ECS cluster not specified")
+        return
+
+    header(f"ECS Tasks: {service}")
+
+    try:
+        # List tasks
+        tasks_response = ecs_client.list_tasks(
+            cluster=cluster,
+            serviceName=service,
+            desiredStatus="RUNNING"
+        )
+
+        task_arns = tasks_response.get("taskArns", [])
+        if not task_arns:
+            warning("No running tasks found")
+            return
+
+        # Describe tasks
+        tasks = ecs_client.describe_tasks(
+            cluster=cluster,
+            tasks=task_arns
+        )
+
+        table = create_table(
+            "",
+            [("Task ID", "cyan"), ("Status", ""), ("Health", ""), ("Started", "dim"), ("CPU/Memory", "dim")]
+        )
+
+        for task in tasks["tasks"]:
+            task_id = task["taskArn"].split("/")[-1][:12]
+            status = task["lastStatus"]
+            health = task.get("healthStatus", "UNKNOWN")
+
+            started = task.get("startedAt")
+            if started:
+                started = started.strftime("%Y-%m-%d %H:%M")
+            else:
+                started = "-"
+
+            cpu = task.get("cpu", "-")
+            memory = task.get("memory", "-")
+
+            table.add_row(
+                task_id,
+                status_badge(status.lower()),
+                status_badge(health.lower()),
+                started,
+                f"{cpu} / {memory}"
+            )
+
+        console.print(table)
+
+    except ClientError as e:
+        error(f"AWS Error: {e.response['Error']['Message']}")
+
+
+# ==================== EC2 Commands ====================
+
+@app.command("ec2")
+def ec2_logs(
+    instance: str = typer.Argument(..., help="EC2 instance ID or name tag"),
+    log_type: str = typer.Option("system", "--type", "-t", help="Log type: system, application, cloud-init"),
+    since: str = typer.Option("1h", "--since", help="Time range"),
+    grep: Optional[str] = typer.Option(None, "--grep", "-g", help="Filter pattern"),
+    follow: bool = typer.Option(False, "--follow", "-F", help="Follow logs"),
+    
+    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
+):
+    """View EC2 instance logs from CloudWatch (requires CloudWatch agent)."""
+    session = get_aws_session(region)
+    ec2_client = session.client('ec2')
+    logs_client = session.client('logs')
+
+    # Resolve instance ID if name tag provided
+    if not instance.startswith("i-"):
+        response = ec2_client.describe_instances(
+            Filters=[{"Name": "tag:Name", "Values": [instance]}]
+        )
+        reservations = response.get("Reservations", [])
+        if reservations and reservations[0].get("Instances"):
+            instance = reservations[0]["Instances"][0]["InstanceId"]
+        else:
+            error(f"Instance with name '{instance}' not found")
+            return
+
+    header(f"EC2 Logs: {instance}")
+
+    # Common CloudWatch agent log group patterns
+    log_group_patterns = {
+        "system": f"/aws/ec2/{instance}/var/log/syslog",
+        "application": f"/aws/ec2/{instance}/var/log/application",
+        "cloud-init": f"/aws/ec2/{instance}/var/log/cloud-init",
+        "messages": f"/aws/ec2/{instance}/var/log/messages",
+    }
+
+    # Also check for common patterns
+    alternative_patterns = [
+        f"/ec2/{instance}",
+        f"/aws/ec2/{instance}",
+        instance,
+    ]
+
+    log_group = log_group_patterns.get(log_type)
+
+    # Try to find the log group
+    try:
+        response = logs_client.describe_log_groups(logGroupNamePrefix=f"/aws/ec2/{instance}")
+        groups = response.get("logGroups", [])
+
+        if groups:
+            info(f"Found log groups for instance:")
+            for g in groups[:5]:
+                console.print(f"  - {g['logGroupName']}")
+
+            if not log_group or not any(g["logGroupName"] == log_group for g in groups):
+                log_group = groups[0]["logGroupName"]
+
+        if not log_group:
+            warning(f"No CloudWatch log group found for instance {instance}")
+            info("Make sure CloudWatch agent is installed and configured")
+            info("\nTry viewing logs via SSH instead:")
+            console.print(f"  devops ssh run 'tail -100 /var/log/syslog' --server <server-name>")
+            return
+
+        info(f"Log Group: {log_group}")
+        console.print()
+
+        start_time = parse_time_range(since)
+        start_timestamp = int(start_time.timestamp() * 1000)
+
+        if follow:
+            _follow_cloudwatch_logs(logs_client, log_group, None, None, grep, start_timestamp)
+        else:
+            _fetch_cloudwatch_logs(logs_client, log_group, None, None, grep, start_timestamp, 200)
+
+    except ClientError as e:
+        error(f"AWS Error: {e.response['Error']['Message']}")
+
+
+@app.command("ec2-list")
+def list_ec2_instances(
+    
+    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
+):
+    """List EC2 instances with their status."""
+    session = get_aws_session(region)
+    ec2_client = session.client('ec2')
+
+    header("EC2 Instances")
+
+    try:
+        response = ec2_client.describe_instances()
+
+        table = create_table(
+            "",
+            [("Name", "cyan"), ("Instance ID", ""), ("State", ""), ("Type", "dim"), ("IP", "dim")]
+        )
+
+        for reservation in response["Reservations"]:
+            for instance in reservation["Instances"]:
+                instance_id = instance["InstanceId"]
+                state = instance["State"]["Name"]
+                instance_type = instance["InstanceType"]
+
+                # Get name tag
+                name = "-"
+                for tag in instance.get("Tags", []):
+                    if tag["Key"] == "Name":
+                        name = tag["Value"]
+                        break
+
+                # Get IP
+                ip = instance.get("PublicIpAddress") or instance.get("PrivateIpAddress") or "-"
+
+                table.add_row(
+                    name,
+                    instance_id,
+                    status_badge(state),
+                    instance_type,
+                    ip
+                )
+
+        console.print(table)
+
+    except ClientError as e:
+        error(f"AWS Error: {e.response['Error']['Message']}")
+
+
+
+@app.command("search")
+def search_logs(
+    pattern: str = typer.Argument(..., help="Search pattern"),
+    log_groups: Optional[str] = typer.Option(None, "--groups", "-g", help="Comma-separated log groups"),
+    since: str = typer.Option("1h", "--since", help="Time range"),
+    
+    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
+):
+    """Search across multiple log groups."""
+    session = get_aws_session(region)
+    logs_client = session.client('logs')
+
+    config = load_config()
+    apps = config.get("aws", {}).get("apps", {})
+
+    # Get log groups to search
+    if log_groups:
+        groups_to_search = [g.strip() for g in log_groups.split(",")]
+    else:
+        # Search all configured app log groups
+        groups_to_search = []
+        for app_name, app_config in apps.items():
+            if app_config.get("log_group"):
+                groups_to_search.append(app_config["log_group"])
+
+        if not groups_to_search:
+            error("No log groups specified. Use --groups or configure apps in config")
+            return
+
+    header(f"Searching for: {pattern}")
+    info(f"Log groups: {', '.join(groups_to_search)}")
+    console.print()
+
+    start_time = parse_time_range(since)
+    start_timestamp = int(start_time.timestamp() * 1000)
+
+    total_matches = 0
+
+    for log_group in groups_to_search:
+        try:
+            response = logs_client.filter_log_events(
+                logGroupName=log_group,
+                startTime=start_timestamp,
+                filterPattern=pattern,
+                limit=50,
+            )
+
+            events = response.get("events", [])
+            if events:
+                console.print(f"\n[bold cyan]{log_group}[/] ({len(events)} matches)")
+                console.print("-" * 60)
+
+                for event in events:
+                    timestamp = datetime.fromtimestamp(event["timestamp"] / 1000)
+                    message = event["message"].strip()
+                    time_str = timestamp.strftime("%H:%M:%S")
+
+                    console.print(f"[dim]{time_str}[/] ", end="")
+                    console.print(colorize_log_level(message))
+
+                total_matches += len(events)
+
+        except ClientError as e:
+            warning(f"Could not search {log_group}: {e.response['Error']['Message']}")
+
+    console.print()
+    info(f"Total: {total_matches} matches across {len(groups_to_search)} log groups")
+
+
+# ==================== Activity/Audit Commands ====================
+
+@app.command("activity")
+def view_activity(
+    service: Optional[str] = typer.Option(None, "--service", "-s", help="Filter by service"),
+    user: Optional[str] = typer.Option(None, "--user", "-u", help="Filter by user"),
+    since: str = typer.Option("24h", "--since", help="Time range"),
+    
+    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
+):
+    """View AWS CloudTrail activity (audit logs)."""
+    session = get_aws_session(region)
+
+    try:
+        cloudtrail = session.client('cloudtrail')
+    except Exception:
+        error("CloudTrail client not available")
+        return
+
+    header("AWS Activity (CloudTrail)")
+
+    start_time = parse_time_range(since)
+
+    try:
+        kwargs = {
+            "StartTime": start_time,
+            "MaxResults": 50,
+        }
+
+        if user:
+            kwargs["LookupAttributes"] = [
+                {"AttributeKey": "Username", "AttributeValue": user}
+            ]
+
+        response = cloudtrail.lookup_events(**kwargs)
+        events = response.get("Events", [])
+
+        if not events:
+            warning("No activity events found")
+            return
+
+        table = create_table(
+            "",
+            [("Time", "dim"), ("User", "cyan"), ("Action", ""), ("Resource", "dim")]
+        )
+
+        for event in events:
+            event_time = event["EventTime"].strftime("%m-%d %H:%M")
+            username = event.get("Username", "-")
+            event_name = event.get("EventName", "-")
+
+            resources = event.get("Resources", [])
+            resource = resources[0]["ResourceName"] if resources else "-"
+            if len(resource) > 30:
+                resource = resource[:27] + "..."
+
+            # Filter by service if specified
+            if service and service.lower() not in event_name.lower():
+                continue
+
+            table.add_row(event_time, username, event_name, resource)
+
+        console.print(table)
+
+    except ClientError as e:
+        error(f"AWS Error: {e.response['Error']['Message']}")
+        info("Note: CloudTrail access may require additional permissions")
+
+
+@app.command("errors")
+def view_errors(
+    app: Optional[str] = typer.Option(None, "--app", "-a", help="App name (from your apps.yaml config)"),
+    since: str = typer.Option("6h", "--since", help="Time range"),
+    
+    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
+):
+    """View error logs from all applications."""
+    session = get_aws_session(region)
+    logs_client = session.client('logs')
+
+    config = load_config()
+    apps_config = config.get("aws", {}).get("apps", {})
+
+    if app:
+        apps_to_check = {app: apps_config.get(app, {})}
+    else:
+        apps_to_check = apps_config
+
+    if not apps_to_check:
+        error("No apps configured. Add to config under aws.apps")
+        return
+
+    header("Error Logs")
+
+    start_time = parse_time_range(since)
+    start_timestamp = int(start_time.timestamp() * 1000)
+
+    error_patterns = [
+        "ERROR",
+        "Exception",
+        "FATAL",
+        "CRITICAL",
+        "Traceback",
+    ]
+
+    filter_pattern = " ".join([f'?"{p}"' for p in error_patterns])
+
+    for app_name, app_config in apps_to_check.items():
+        log_group = app_config.get("log_group")
+        if not log_group:
+            continue
+
+        try:
+            response = logs_client.filter_log_events(
+                logGroupName=log_group,
+                startTime=start_timestamp,
+                filterPattern=filter_pattern,
+                limit=30,
+            )
+
+            events = response.get("events", [])
+
+            console.print(f"\n[bold]{app_name.upper()}[/] - {len(events)} errors")
+            console.print("-" * 50)
+
+            if not events:
+                success("No errors found!")
+                continue
+
+            for event in events[:10]:
+                timestamp = datetime.fromtimestamp(event["timestamp"] / 1000)
+                message = event["message"].strip()[:200]
+                time_str = timestamp.strftime("%m-%d %H:%M:%S")
+
+                console.print(f"[dim]{time_str}[/] [red]{message}[/]")
+
+            if len(events) > 10:
+                warning(f"  ... and {len(events) - 10} more errors")
+
+        except ClientError as e:
+            warning(f"Could not check {app_name}: {e.response['Error']['Message']}")
+
+    console.print()
+
+
+# ==================== Configuration ====================
+
+@app.command("configure")
+def configure_aws():
+    """Show AWS configuration help."""
+    header("AWS Logs Configuration")
+
+    console.print("""
+Add the following to your [bold]~/.devops-cli/config.yaml[/]:
+
+[cyan]aws:
+  # AWS credentials profile (from ~/.aws/credentials)
+  profile: "dev-readonly"
+
+  # Default region
+  region: "us-east-1"
+
+  # Default ECS cluster
+  ecs_cluster: "production-cluster"
+
+  # Application configurations
+  apps:
+    zinai:
+      # EC2 application
+      instance_id: "i-0123456789abcdef"
+      log_group: "/aws/ec2/zinai/application"
+
+    zintellix:
+      # ECS service
+      cluster: "production-cluster"
+      service: "zintellix-backend"
+      log_group: "/ecs/zintellix-backend"[/]
+
+[bold]Setting up AWS credentials for developers:[/]
+
+1. Create a read-only IAM user/role with these permissions:
+   - logs:DescribeLogGroups
+   - logs:DescribeLogStreams
+   - logs:FilterLogEvents
+   - logs:GetLogEvents
+   - ecs:DescribeServices
+   - ecs:DescribeTasks
+   - ecs:ListTasks
+   - ec2:DescribeInstances
+
+2. Configure credentials:
+   [dim]aws configure --profile dev-readonly[/]
+
+3. Test access:
+   [dim]devops aws groups --profile dev-readonly[/]
+
+[bold]Quick commands:[/]
+   devops aws zinai -F              # Follow ZinAI logs
+   devops aws zintellix --since 2h  # Zintellix logs from last 2 hours
+   devops aws errors                # View all errors
+   devops aws search "ERROR"        # Search across all apps
+""")

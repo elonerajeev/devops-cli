@@ -1,0 +1,137 @@
+# DevOps CLI Configuration
+# Copy this file to ~/.devops-cli/config.yaml or devops-cli.yaml in your project root
+
+# GitHub Configuration
+github:
+  token: ""  # Or set GITHUB_TOKEN environment variable
+  org: "your-org"
+  default_repo: "your-repo"
+
+# Server Configuration for SSH and remote commands
+servers:
+  web-1:
+    host: "web1.example.com"
+    user: "deploy"
+    key: "~/.ssh/id_rsa"
+    tags: ["web", "production"]
+
+  web-2:
+    host: "web2.example.com"
+    user: "deploy"
+    key: "~/.ssh/id_rsa"
+    tags: ["web", "production"]
+
+  api-1:
+    host: "api1.example.com"
+    user: "deploy"
+    key: "~/.ssh/id_rsa"
+    tags: ["api", "production"]
+
+  staging:
+    host: "staging.example.com"
+    user: "deploy"
+    key: "~/.ssh/id_rsa"
+    tags: ["staging"]
+
+# Services for Health Checks
+services:
+  api:
+    type: http
+    url: "https://api.example.com/health"
+    method: GET
+    expected_status: 200
+    timeout: 10
+
+  website:
+    type: http
+    url: "https://www.example.com"
+    expected_status: 200
+
+  database:
+    type: tcp
+    host: "localhost"
+    port: 5432
+    timeout: 5
+
+  redis:
+    type: tcp
+    host: "localhost"
+    port: 6379
+
+  api-container:
+    type: docker
+    container: "api"
+
+  worker-container:
+    type: docker
+    container: "worker"
+
+# Log Sources
+logs:
+  default_lines: 100
+  sources:
+    api:
+      type: docker
+      container: "api"
+
+    worker:
+      type: docker
+      container: "worker"
+
+    nginx:
+      type: file
+      path: "/var/log/nginx/access.log"
+
+    backend:
+      type: kubernetes
+      pod: "backend-deployment"
+      namespace: "default"
+      container: "backend"
+
+# Environment Configuration
+environments:
+  dev:
+    branch: "develop"
+    auto_deploy: true
+
+  staging:
+    branch: "staging"
+    auto_deploy: true
+
+  prod:
+    branch: "main"
+    auto_deploy: false  # Requires manual approval
+
+# CI/CD Configuration
+ci:
+  provider: "github"  # github, gitlab, jenkins
+
+# AWS Configuration - For CloudWatch, ECS, and EC2 logs
+aws:
+  # AWS credentials profile (from ~/.aws/credentials)
+  profile: "default"
+
+  # Default AWS region
+  region: "us-east-1"
+
+  # Default ECS cluster name
+  ecs_cluster: "production-cluster"
+
+  # Application configurations for quick access
+  apps:
+    # Example: EC2 Application
+    my-ec2-app:
+      instance_id: "i-0123456789abcdef0"
+      log_group: "/aws/ec2/my-app/application"
+
+    # Example: ECS Service
+    my-ecs-app:
+      cluster: "production-cluster"
+      service: "my-backend-service"
+      log_group: "/ecs/my-backend"
+
+    # Add more applications as needed
+    # worker:
+    #   cluster: "production-cluster"
+    #   service: "worker-service"
+    #   log_group: "/ecs/worker"
