@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+from pydantic import ValidationError # Import ValidationError
 
 # Dashboard paths
 DASHBOARD_DIR = Path(__file__).parent
@@ -90,7 +91,7 @@ def load_teams_config():
     if teams_file.exists():
         with open(teams_file) as f:
             return yaml.safe_load(f) or {}
-    return {"teams": {"default": {"name": "Default Team", "apps": ["*"], "servers": ["*"], "repos": ["*"]}}}
+    return {"teams": {"default": {"name": "Default Team", "apps": ["*"], "servers": ["*"], "websites": ["*"], "repos": ["*"]}}}
 
 def get_user_team(email: str) -> str:
     """Get user's team."""
@@ -116,7 +117,7 @@ def get_team_permissions(team_name: str) -> dict:
     """Get team's access permissions."""
     config = load_teams_config()
     teams = config.get("teams", {})
-    return teams.get(team_name, teams.get("default", {"apps": ["*"], "servers": ["*"], "repos": ["*"]}))
+    return teams.get(team_name, teams.get("default", {"apps": ["*"], "servers": ["*"], "websites": ["*"], "repos": ["*"]}))
 
 def can_access_resource(resource_name: str, allowed_patterns: list) -> bool:
     """Check if user can access a resource based on patterns."""
@@ -406,6 +407,36 @@ async def api_servers(user: dict = Depends(require_auth)):
         return {"servers": [], "error": str(e)}
 
 
+# ==================== Websites API ====================
+
+@app.get("/api/websites")
+async def api_websites(user: dict = Depends(require_auth)):
+    """Get all websites (filtered by team access)."""
+    from devops_cli.config.websites import load_websites_config
+
+    try:
+        config = load_websites_config()
+        websites = config.get("websites", {}) # Changed to .get("websites", {}) as per config structure
+
+        result = []
+        for name, website in websites.items():
+            result.append({
+                "name": name,
+                "url": website.get("url", ""),
+                "expected_status": website.get("expected_status", 200),
+                "method": website.get("method", "GET"),
+                "timeout": website.get("timeout", 10),
+            })
+
+        # Filter by team access (admin sees all)
+        if user.get("role") != "admin":
+            result = filter_by_team_access(result, user["email"], "websites")
+
+        return {"websites": result}
+    except Exception as e:
+        return {"websites": [], "error": str(e)}
+
+
 # ==================== Monitoring API ====================
 
 @app.get("/api/monitoring")
@@ -418,12 +449,30 @@ async def api_monitoring(user: dict = Depends(require_auth)):
         config = MonitoringConfig()
         checker = HealthChecker()
 
-        websites = config.get_websites()
-        apps = config.get_apps()
-        servers = config.get_servers()
+        websites_from_config = config.get_websites()
+        apps_from_config = config.get_apps()
+        servers_from_config = config.get_servers()
+
+        # Filter resources by team access (admin sees all)
+        if user.get("role") != "admin":
+            websites_from_config = filter_by_team_access(
+                [w.as_dict() for w in websites_from_config], user["email"], "websites"
+            )
+            websites_from_config = [WebsiteConfig(**w) for w in websites_from_config]
+
+            apps_from_config = filter_by_team_access(
+                [a.as_dict() for a in apps_from_config], user["email"], "apps"
+            )
+            apps_from_config = [AppConfig(**a) for a in apps_from_config]
+
+            servers_from_config = filter_by_team_access(
+                [s.as_dict() for s in servers_from_config], user["email"], "servers"
+            )
+            servers_from_config = [ServerConfig(**s) for s in servers_from_config]
+
 
         # Run health checks
-        results = await checker.check_all(websites, apps, servers)
+        results = await checker.check_all(websites_from_config, apps_from_config, servers_from_config)
 
         # Convert HealthResult objects to dictionaries
         def result_to_dict(r):
@@ -453,7 +502,7 @@ async def api_monitoring(user: dict = Depends(require_auth)):
             "apps": apps_data,
             "servers": servers_data,
             "summary": {
-                "total": len(websites) + len(apps) + len(servers),
+                "total": len(websites_from_config) + len(apps_from_config) + len(servers_from_config),
                 "online": online_count,
                 "offline": offline_count
             }
@@ -478,11 +527,28 @@ async def api_monitoring_stream(request: Request):
                 config = MonitoringConfig()
                 checker = HealthChecker()
 
-                websites = config.get_websites()
-                apps = config.get_apps()
-                servers = config.get_servers()
+                websites_from_config = config.get_websites()
+                apps_from_config = config.get_apps()
+                servers_from_config = config.get_servers()
 
-                results = await checker.check_all(websites, apps, servers)
+                # Filter resources by team access (admin sees all)
+                if user.get("role") != "admin":
+                    websites_from_config = filter_by_team_access(
+                        [w.as_dict() for w in websites_from_config], user["email"], "websites"
+                    )
+                    websites_from_config = [WebsiteConfig(**w) for w in websites_from_config]
+
+                    apps_from_config = filter_by_team_access(
+                        [a.as_dict() for a in apps_from_config], user["email"], "apps"
+                    )
+                    apps_from_config = [AppConfig(**a) for a in apps_from_config]
+
+                    servers_from_config = filter_by_team_access(
+                        [s.as_dict() for s in servers_from_config], user["email"], "servers"
+                    )
+                    servers_from_config = [ServerConfig(**s) for s in servers_from_config]
+
+                results = await checker.check_all(websites_from_config, apps_from_config, servers_from_config)
 
                 # Convert HealthResult objects to dictionaries
                 def result_to_dict(r):
@@ -1178,8 +1244,8 @@ async def api_upload_document(
         raise HTTPException(status_code=400, detail="Only PDF, TXT, LOG, and MD files are allowed")
 
     # Validate resource type
-    if resource_type not in ["app", "server"]:
-        raise HTTPException(status_code=400, detail="Resource type must be 'app' or 'server'")
+    if resource_type not in ["app", "server", "website"]:
+        raise HTTPException(status_code=400, detail="Resource type must be 'app', 'server', or 'website'")
 
     # Create unique filename
     ext = Path(filename).suffix
@@ -1193,7 +1259,7 @@ async def api_upload_document(
 
     # Update metadata
     metadata = get_documents_metadata()
-    key = resource_name if resource_type == "app" else f"server_{resource_name}"
+    key = f"{resource_type}_{resource_name}"
     metadata["documents"][key] = {
         "filename": safe_name,
         "original_name": filename,
@@ -1221,7 +1287,7 @@ async def api_delete_document(
 ):
     """Delete a document (admin only)."""
     metadata = get_documents_metadata()
-    key = resource_name if resource_type == "app" else f"server_{resource_name}"
+    key = f"{resource_type}_{resource_name}"
 
     if key not in metadata.get("documents", {}):
         raise HTTPException(status_code=404, detail="Document not found")
@@ -1250,7 +1316,7 @@ async def api_download_document(
     from fastapi.responses import FileResponse
 
     metadata = get_documents_metadata()
-    key = resource_name if resource_type == "app" else f"server_{resource_name}"
+    key = f"{resource_type}_{resource_name}"
 
     if key not in metadata.get("documents", {}):
         raise HTTPException(status_code=404, detail="Document not found")
@@ -1405,14 +1471,17 @@ async def api_update_github_config(request: Request, user: dict = Depends(requir
 async def api_config_status(user: dict = Depends(require_auth)):
     """Get configuration status."""
     from devops_cli.commands.admin import (
-        load_apps_config, load_servers_config, load_aws_config,
+        load_apps_config, load_servers_config, load_aws_config, load_teams_config,
         ADMIN_CONFIG_DIR
     )
+    from devops_cli.config.websites import load_websites_config
 
     try:
         apps_config = load_apps_config()
         servers_config = load_servers_config()
         aws_config = load_aws_config()
+        websites_config = load_websites_config()
+        teams_config = load_teams_config() # Also load teams config
 
         auth = get_auth_manager()
         users = auth.list_users()
@@ -1422,11 +1491,164 @@ async def api_config_status(user: dict = Depends(require_auth)):
             "organization": aws_config.get("organization", "Not set"),
             "apps_count": len(apps_config.get("apps", {})),
             "servers_count": len(servers_config.get("servers", {})),
+            "websites_count": len(websites_config.get("websites", {})),
             "aws_roles_count": len(aws_config.get("roles", {})),
+            "teams_count": len(teams_config.get("teams", {})),
             "users_count": len(users)
         }
     except Exception as e:
         return {"error": str(e)}
+
+@app.post("/api/config/upload")
+async def api_config_upload(
+    file: UploadFile = File(...),
+    config_type: str = Form(...),
+    merge: bool = Form(...),
+    user: dict = Depends(require_admin)
+):
+    """
+    Upload a YAML configuration file to update various configurations.
+    Requires admin role.
+    """
+    import yaml
+    from devops_cli.commands.admin import (
+        save_apps_config, save_aws_config, save_servers_config, save_teams_config,
+        load_apps_config, load_aws_config, load_servers_config, load_teams_config
+    )
+    from devops_cli.config.websites import load_websites_config, save_websites_config
+    from devops_cli.config.settings import save_config as save_global_config, load_config as load_global_config
+    from devops_cli.config.schemas import (
+        AppConfigSchema, WebsiteConfigSchema, ServerConfigSchema,
+        AwsConfigSchema, TeamsConfigSchema, FullConfigSchema, AwsRoleSchema, TeamAccessSchema
+    )
+
+    try:
+        content = (await file.read()).decode('utf-8')
+        uploaded_data = yaml.safe_load(content)
+
+        if not isinstance(uploaded_data, dict):
+            raise HTTPException(status_code=400, detail="Uploaded file is not a valid YAML dictionary.")
+
+        # --- Validation and Saving Logic ---
+        if config_type == "full":
+            # For full config, the uploaded_data should match FullConfigSchema structure
+            try:
+                validated_config = FullConfigSchema.model_validate(uploaded_data)
+            except ValidationError as e:
+                raise HTTPException(status_code=400, detail=f"Full config validation error: {e.errors()}")
+
+            if not merge:
+                # Replace all configs
+                # Note: The underlying save functions are designed to save the *content* of the respective YAML file.
+                # Here, uploaded_data for "full" contains separate sections, not the direct content of one file.
+                # So we extract sections and save them to their corresponding files.
+                if validated_config.apps is not None: save_apps_config({"apps": {name: app.model_dump(by_alias=True) for name, app in validated_config.apps.items()}})
+                if validated_config.servers is not None: save_servers_config({"servers": {name: server.model_dump(by_alias=True) for name, server in validated_config.servers.items()}})
+                if validated_config.websites is not None: save_websites_config({name: website.model_dump(by_alias=True) for name, website in validated_config.websites.items()})
+                if validated_config.aws is not None: save_aws_config(validated_config.aws.model_dump(by_alias=True))
+                if validated_config.teams is not None: save_teams_config(validated_config.teams.model_dump(by_alias=True))
+
+                # Handle global settings that might be part of full export but not covered by other saves
+                # (e.g., github token is in settings.py's global config, not aws.yaml etc.)
+                current_global_config = load_global_config()
+                if "github" in uploaded_data:
+                    current_global_config["github"] = uploaded_data["github"]
+                save_global_config(current_global_config)
+
+            else:
+                # Merge logic for full config
+                # For now, restrict merge to specific sections for simplicity and to avoid complex recursive merges
+                # A full merge would require deep merging logic.
+                raise HTTPException(status_code=400, detail="Merge option not directly supported for 'full' config type. Please use 'replace' to overwrite or upload individual sections.")
+            
+            log_activity("config", user["email"], f"Uploaded and {'replaced' if not merge else 'merged'} full config.")
+            return {"success": True, "message": f"Full configuration {'replaced' if not merge else 'merged'} successfully."}
+
+        elif config_type == "apps":
+            # For apps, the uploaded data should be a dict where keys are app names and values are app configs
+            try:
+                validated_apps = {k: AppConfigSchema.model_validate(v) for k, v in uploaded_data.items()}
+            except ValidationError as e:
+                raise HTTPException(status_code=400, detail=f"Applications config validation error: {e.errors()}")
+
+            current_config = load_apps_config()
+            if merge:
+                for name, app_data in validated_apps.items():
+                    current_config.setdefault("apps", {})[name] = app_data.model_dump(by_alias=True)
+            else:
+                current_config["apps"] = {name: app.model_dump(by_alias=True) for name, app in validated_apps.items()}
+            save_apps_config(current_config)
+            log_activity("config", user["email"], f"Uploaded and {'merged' if merge else 'replaced'} apps config.")
+            return {"success": True, "message": f"Applications configuration {'merged' if merge else 'replaced'} successfully."}
+
+        elif config_type == "servers":
+            try:
+                validated_servers = {k: ServerConfigSchema.model_validate(v) for k, v in uploaded_data.items()}
+            except ValidationError as e:
+                raise HTTPException(status_code=400, detail=f"Servers config validation error: {e.errors()}")
+
+            current_config = load_servers_config()
+            if merge:
+                for name, server_data in validated_servers.items():
+                    current_config.setdefault("servers", {})[name] = server_data.model_dump(by_alias=True)
+            else:
+                current_config["servers"] = {name: server.model_dump(by_alias=True) for name, server in validated_servers.items()}
+            save_servers_config(current_config)
+            log_activity("config", user["email"], f"Uploaded and {'merged' if merge else 'replaced'} servers config.")
+            return {"success": True, "message": f"Servers configuration {'merged' if merge else 'replaced'} successfully."}
+
+        elif config_type == "websites":
+            try:
+                validated_websites = {k: WebsiteConfigSchema.model_validate(v) for k, v in uploaded_data.items()}
+            except ValidationError as e:
+                raise HTTPException(status_code=400, detail=f"Websites config validation error: {e.errors()}")
+
+            current_config = load_websites_config()
+            if merge:
+                for name, website_data in validated_websites.items():
+                    current_config[name] = website_data.model_dump(by_alias=True)
+            else:
+                current_config = {name: website.model_dump(by_alias=True) for name, website in validated_websites.items()}
+            save_websites_config(current_config)
+            log_activity("config", user["email"], f"Uploaded and {'merged' if merge else 'replaced'} websites config.")
+            return {"success": True, "message": f"Websites configuration {'merged' if merge else 'replaced'} successfully."}
+
+        elif config_type == "aws":
+            # AWS config file usually contains top-level keys like 'organization', 'roles'
+            # The uploaded_data should be validated as AwsConfigSchema
+            try:
+                validated_aws_config = AwsConfigSchema.model_validate(uploaded_data)
+            except ValidationError as e:
+                raise HTTPException(status_code=400, detail=f"AWS config validation error: {e.errors()}")
+
+            current_config = load_aws_config()
+            if merge:
+                # Merge top-level keys, specifically roles
+                current_config.update(validated_aws_config.model_dump(by_alias=True, exclude_unset=True))
+                # For roles, need a deeper merge
+                if validated_aws_config.roles:
+                    current_config.setdefault("roles", {}).update(validated_aws_config.roles.model_dump(by_alias=True, exclude_unset=True))
+            else:
+                current_config = validated_aws_config.model_dump(by_alias=True)
+            save_aws_config(current_config)
+            log_activity("config", user["email"], f"Uploaded and {'merged' if merge else 'replaced'} AWS config.")
+            return {"success": True, "message": f"AWS configuration {'merged' if merge else 'replaced'} successfully."}
+
+        elif config_type == "teams":
+            try:
+                validated_teams_config = TeamsConfigSchema.model_validate(uploaded_data)
+            except ValidationError as e:
+                raise HTTPException(status_code=400, detail=f"Teams config validation error: {e.errors()}")
+
+            current_config = load_teams_config()
+            if merge:
+                current_config.setdefault("teams", {}).update({name: team.model_dump(by_alias=True) for name, team in validated_teams_config.teams.items()})
+            else:
+                current_config["teams"] = {name: team.model_dump(by_alias=True) for name, team in validated_teams_config.teams.items()}
+            save_teams_config(current_config)
+            log_activity("config", user["email"], f"Uploaded and {'merged' if merge else 'replaced'} teams config.")
+            return {"success": True, "message": f"Teams configuration {'merged' if merge else 'replaced'} successfully."}
+
 
 
 # ==================== Run Server ====================

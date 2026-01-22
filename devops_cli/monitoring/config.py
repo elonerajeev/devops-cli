@@ -15,9 +15,10 @@ class WebsiteConfig:
     expected_status: int = 200
     timeout: int = 10
     method: str = "GET"
-    headers: dict = field(default_factory=dict)
-    enabled: bool = True
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+
+    def as_dict(self):
+        return asdict(self)
 
 
 @dataclass
@@ -32,6 +33,9 @@ class AppConfig:
     enabled: bool = True
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
+    def as_dict(self):
+        return asdict(self)
+
 
 @dataclass
 class ServerConfig:
@@ -42,9 +46,11 @@ class ServerConfig:
     check_type: str = "ping"  # ping, ssh, http
     ssh_user: Optional[str] = None
     ssh_key: Optional[str] = None
-    http_endpoint: Optional[str] = None
     enabled: bool = True
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+
+    def as_dict(self):
+        return asdict(self)
 
 
 class MonitoringConfig:

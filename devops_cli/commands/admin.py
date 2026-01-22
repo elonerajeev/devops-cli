@@ -38,6 +38,10 @@ from devops_cli.config.aws_credentials import (
     save_aws_credentials, load_aws_credentials, delete_aws_credentials,
     credentials_exist, get_credentials_info, validate_aws_credentials
 )
+from devops_cli.config.websites import (
+    load_websites_config, save_websites_config, get_website_config,
+    add_website as add_website_to_config, remove_website as remove_website_from_config
+)
 from devops_cli.utils.output import (
     success, error, warning, info, header,
     create_table, status_badge, console as out_console
@@ -130,6 +134,7 @@ def admin_callback(ctx: typer.Context):
 ADMIN_CONFIG_DIR = Path.home() / ".devops-cli"
 APPS_CONFIG_FILE = ADMIN_CONFIG_DIR / "apps.yaml"
 SERVERS_CONFIG_FILE = ADMIN_CONFIG_DIR / "servers.yaml"
+WEBSITES_CONFIG_FILE = ADMIN_CONFIG_DIR / "websites.yaml"
 AWS_CONFIG_FILE = ADMIN_CONFIG_DIR / "aws.yaml"
 TEAMS_CONFIG_FILE = ADMIN_CONFIG_DIR / "teams.yaml"
 SECRETS_DIR = ADMIN_CONFIG_DIR / "secrets"
@@ -237,6 +242,12 @@ def admin_init():
         "servers": {},
     }
     save_servers_config(servers_config)
+
+    websites_config = {
+        "organization": org_name,
+        "websites": {},
+    }
+    save_websites_config(websites_config)
 
     teams_config = {
         "organization": org_name,
@@ -643,6 +654,156 @@ def edit_app(
         info("Changes discarded")
 
 
+
+# ==================== Website Management ====================
+
+@app.command("website-add")
+def add_website():
+    """Add a new website to monitor (interactive)."""
+    header("Add New Website")
+
+    name = Prompt.ask("Website name (e.g., frontend-prod, blog)")
+    url = Prompt.ask("URL (e.g., https://example.com/health)")
+    expected_status = int(Prompt.ask("Expected HTTP status code", default="200"))
+    method = Prompt.ask("HTTP method", choices=["GET", "POST", "HEAD"], default="GET")
+    timeout = int(Prompt.ask("Timeout in seconds", default="10"))
+
+    websites_config = load_websites_config()
+
+    if name in websites_config:
+        error(f"Website '{name}' already exists.")
+        return
+
+    website_data = {
+        "name": name,
+        "url": url,
+        "expected_status": expected_status,
+        "method": method,
+        "timeout": timeout,
+        "added_at": datetime.now().isoformat(),
+    }
+
+    # Team access
+    teams_config = load_teams_config()
+    teams = list(teams_config.get("teams", {}).keys())
+    if teams:
+        selected_teams = Prompt.ask(
+            "Teams with access (comma-separated)",
+            default="default"
+        )
+        website_data["teams"] = [t.strip() for t in selected_teams.split(",")]
+
+    add_website_to_config(name, url, **website_data)
+
+    success(f"Website '{name}' added!")
+    info(f"\nDevelopers can now use:")
+    info(f"  devops website health {name}")
+    info(f"  devops website info {name}")
+
+
+@app.command("website-list")
+def list_websites():
+    """List all configured websites."""
+    websites = load_websites_config()
+
+    if not websites:
+        warning("No websites configured")
+        info("Add a website: devops admin website-add")
+        return
+
+    header("Configured Websites")
+
+    table = create_table(
+        "",
+        [("Name", "cyan"), ("URL", ""), ("Expected Status", "dim"), ("Method", "dim"), ("Teams", "dim")]
+    )
+
+    for name, website in websites.items():
+        teams = ", ".join(website.get("teams", ["default"]))
+        table.add_row(
+            name,
+            website.get("url", "-"),
+            str(website.get("expected_status", "N/A")),
+            website.get("method", "GET"),
+            teams[:20]
+        )
+
+    console.print(table)
+    info(f"\nTotal: {len(websites)} websites")
+
+
+@app.command("website-show")
+def show_website(
+    name: str = typer.Argument(..., help="Website name"),
+):
+    """Show detailed configuration for a website."""
+    website = get_website_config(name)
+
+    if not website:
+        error(f"Website '{name}' not found")
+        return
+
+    header(f"Website: {name}")
+
+    console.print(yaml.dump(website, default_flow_style=False))
+
+
+@app.command("website-remove")
+def remove_website(
+    name: str = typer.Argument(..., help="Website name to remove"),
+):
+    """Remove a website."""
+    if not get_website_config(name):
+        error(f"Website '{name}' not found")
+        return
+
+    if not Confirm.ask(f"Remove website '{name}'?"):
+        info("Cancelled")
+        return
+
+    if remove_website_from_config(name):
+        success(f"Website '{name}' removed")
+    else:
+        error(f"Failed to remove website '{name}'")
+
+
+@app.command("website-edit")
+def edit_website(
+    name: str = typer.Argument(..., help="Website name to edit"),
+):
+    """Edit a website configuration."""
+    import subprocess
+
+    websites = load_websites_config()
+
+    if name not in websites:
+        error(f"Website '{name}' not found")
+        return
+
+    # Write to temp file
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml.dump(websites[name], f, default_flow_style=False)
+        temp_file = f.name
+
+    # Open in editor
+    editor = os.environ.get("EDITOR", "nano")
+    subprocess.run([editor, temp_file])
+
+    # Read back
+    with open(temp_file) as f:
+        updated = yaml.safe_load(f)
+
+    os.unlink(temp_file)
+
+    if Confirm.ask("Save changes?"):
+        websites[name] = updated
+        save_websites_config(websites)
+        success(f"Website '{name}' updated")
+    else:
+        info("Changes discarded")
+
+
 # ==================== Server Management ====================
 
 @app.command("server-add")
@@ -834,6 +995,7 @@ def export_config(
         "aws": load_aws_config(),
         "apps": load_apps_config(),
         "servers": load_servers_config(),
+        "websites": load_websites_config(),
         "teams": load_teams_config(),
     }
 
@@ -886,6 +1048,11 @@ def import_config(
             servers_config["servers"].update(imported["servers"].get("servers", {}))
             save_servers_config(servers_config)
 
+        if "websites" in imported:
+            websites_config = load_websites_config()
+            websites_config.update(imported["websites"].get("websites", {})) # Access the 'websites' key in imported data
+            save_websites_config(websites_config)
+
         if "teams" in imported:
             teams_config = load_teams_config()
             teams_config["teams"].update(imported["teams"].get("teams", {}))
@@ -900,6 +1067,8 @@ def import_config(
             save_apps_config(imported["apps"])
         if "servers" in imported:
             save_servers_config(imported["servers"])
+        if "websites" in imported:
+            save_websites_config(imported["websites"].get("websites", {})) # Access the 'websites' key in imported data
         if "teams" in imported:
             save_teams_config(imported["teams"])
 
@@ -948,6 +1117,16 @@ def admin_status():
             console.print(f"    - {name}")
     else:
         console.print("[yellow]![/] Servers: None configured")
+
+    # Websites
+    websites_config = load_websites_config()
+    websites = websites_config.get("websites", {})
+    if websites:
+        console.print(f"[green]✓[/] Websites: {len(websites)} configured")
+        for name in websites:
+            console.print(f"    - {name}")
+    else:
+        console.print("[yellow]![/] Websites: None configured")
 
     # Teams
     teams = teams_config.get("teams", {})
