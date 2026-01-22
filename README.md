@@ -180,6 +180,11 @@ The monitoring dashboard provides real-time status of your infrastructure:
 - Docker (optional)
 - AWS CLI (optional, for AWS features)
 
+## Documentation
+
+- **[SETUP_GUIDE.md](SETUP_GUIDE.md)** - Complete setup guide for admins and developers
+- **[COMMANDS_CHEATSHEET.md](COMMANDS_CHEATSHEET.md)** - Quick reference for all commands
+
 ## License
 
 MIT License - See LICENSE file for details.

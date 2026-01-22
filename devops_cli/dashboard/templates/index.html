@@ -1,0 +1,1626 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DevOps CLI Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#6366f1',
+                        secondary: '#8b5cf6',
+                        accent: '#06b6d4',
+                        success: '#10b981',
+                        warning: '#f59e0b',
+                        danger: '#ef4444',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .gradient-bg { background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 100%); }
+        .card-glow { box-shadow: 0 0 30px rgba(99, 102, 241, 0.1); }
+        .status-pulse { animation: pulse 2s infinite; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .sidebar-item:hover { background: rgba(99, 102, 241, 0.1); }
+        .sidebar-item.active { background: rgba(99, 102, 241, 0.2); border-left: 3px solid #6366f1; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1a1a2e; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+    </style>
+</head>
+<body class="h-full bg-gray-900 text-white">
+    <div class="flex h-full">
+        <!-- Sidebar -->
+        <aside class="w-64 gradient-bg border-r border-gray-800 flex flex-col">
+            <!-- Logo -->
+            <div class="p-6 border-b border-gray-800">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 bg-gradient-to-br from-primary to-secondary rounded-xl flex items-center justify-center">
+                        <i class="fas fa-terminal text-white"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-lg font-bold">DevOps CLI</h1>
+                        <p class="text-xs text-gray-500">Dashboard v1.0</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Navigation -->
+            <nav class="flex-1 p-4 space-y-2 overflow-y-auto">
+                <p class="text-xs text-gray-500 uppercase tracking-wider px-4 mb-2">Main</p>
+                <a href="#" onclick="showSection('overview')" class="sidebar-item active flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="overview">
+                    <i class="fas fa-chart-pie w-5 mr-3 text-primary"></i>
+                    <span>Overview</span>
+                </a>
+                <a href="#" onclick="showSection('monitoring')" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="monitoring">
+                    <i class="fas fa-heartbeat w-5 mr-3 text-success"></i>
+                    <span>Monitoring</span>
+                </a>
+
+                <p class="text-xs text-gray-500 uppercase tracking-wider px-4 mb-2 mt-4">Resources</p>
+                <a href="#" onclick="showSection('apps')" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="apps">
+                    <i class="fas fa-cube w-5 mr-3 text-accent"></i>
+                    <span>Applications</span>
+                </a>
+                <a href="#" onclick="showSection('servers')" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="servers">
+                    <i class="fas fa-server w-5 mr-3 text-warning"></i>
+                    <span>Servers</span>
+                </a>
+                <a href="#" onclick="showSection('deployments')" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="deployments">
+                    <i class="fas fa-rocket w-5 mr-3 text-pink-500"></i>
+                    <span>Deployments</span>
+                </a>
+                <a href="#" onclick="showSection('repos')" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="repos">
+                    <i class="fab fa-github w-5 mr-3 text-white"></i>
+                    <span>Repositories</span>
+                </a>
+
+                <p class="text-xs text-gray-500 uppercase tracking-wider px-4 mb-2 mt-4">Observability</p>
+                <a href="#" onclick="showSection('logs')" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="logs">
+                    <i class="fas fa-scroll w-5 mr-3 text-emerald-500"></i>
+                    <span>Logs</span>
+                </a>
+                <a href="#" onclick="showSection('activity')" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="activity">
+                    <i class="fas fa-history w-5 mr-3 text-blue-400"></i>
+                    <span>Activity</span>
+                </a>
+
+                {% if user.role == 'admin' %}
+                <p class="text-xs text-gray-500 uppercase tracking-wider px-4 mb-2 mt-4">Admin</p>
+                <a href="#" onclick="showSection('users')" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="users">
+                    <i class="fas fa-users w-5 mr-3 text-secondary"></i>
+                    <span>Users</span>
+                </a>
+                <a href="#" onclick="showSection('documents')" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="documents">
+                    <i class="fas fa-file-alt w-5 mr-3 text-orange-500"></i>
+                    <span>Documents</span>
+                </a>
+                {% endif %}
+            </nav>
+
+            <!-- User Info -->
+            <div class="p-4 border-t border-gray-800">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-10 h-10 bg-gradient-to-br from-primary to-secondary rounded-full flex items-center justify-center">
+                            <span class="text-sm font-bold">{{ user.name[0] | upper }}</span>
+                        </div>
+                        <div>
+                            <p class="text-sm font-medium">{{ user.name }}</p>
+                            <p class="text-xs text-gray-500">{{ user.role | title }}</p>
+                        </div>
+                    </div>
+                    <button onclick="logout()" class="text-gray-500 hover:text-white transition-colors" title="Logout">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 overflow-auto">
+            <!-- Header -->
+            <header class="bg-gray-800/50 backdrop-blur-lg border-b border-gray-700 sticky top-0 z-10">
+                <div class="px-6 py-4 flex items-center justify-between">
+                    <div>
+                        <h2 id="pageTitle" class="text-xl font-bold">Overview</h2>
+                        <p class="text-sm text-gray-500">Welcome back, {{ user.name }}</p>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <div class="flex items-center space-x-2 text-sm text-gray-400">
+                            <i class="fas fa-clock"></i>
+                            <span id="currentTime"></span>
+                        </div>
+                        <button onclick="refreshData()" class="px-4 py-2 bg-primary/20 text-primary rounded-lg hover:bg-primary/30 transition-colors">
+                            <i class="fas fa-sync-alt mr-2"></i>Refresh
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Content Sections -->
+            <div class="p-6">
+                <!-- Overview Section -->
+                <section id="section-overview" class="section">
+                    <!-- Stats Cards -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                        <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50 card-glow">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Total Apps</p>
+                                    <p id="stat-apps" class="text-3xl font-bold mt-1">-</p>
+                                </div>
+                                <div class="w-12 h-12 bg-primary/20 rounded-xl flex items-center justify-center">
+                                    <i class="fas fa-cube text-primary text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50 card-glow">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Servers</p>
+                                    <p id="stat-servers" class="text-3xl font-bold mt-1">-</p>
+                                </div>
+                                <div class="w-12 h-12 bg-warning/20 rounded-xl flex items-center justify-center">
+                                    <i class="fas fa-server text-warning text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50 card-glow">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Online</p>
+                                    <p id="stat-online" class="text-3xl font-bold mt-1 text-success">-</p>
+                                </div>
+                                <div class="w-12 h-12 bg-success/20 rounded-xl flex items-center justify-center">
+                                    <i class="fas fa-check-circle text-success text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50 card-glow">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Offline</p>
+                                    <p id="stat-offline" class="text-3xl font-bold mt-1 text-danger">-</p>
+                                </div>
+                                <div class="w-12 h-12 bg-danger/20 rounded-xl flex items-center justify-center">
+                                    <i class="fas fa-times-circle text-danger text-xl"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quick Status -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- Monitoring Status -->
+                        <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                            <h3 class="text-lg font-semibold mb-4 flex items-center">
+                                <i class="fas fa-heartbeat text-success mr-2"></i>
+                                Live Status
+                            </h3>
+                            <div id="live-status" class="space-y-3">
+                                <div class="flex items-center justify-center py-8 text-gray-500">
+                                    <i class="fas fa-spinner fa-spin mr-2"></i>
+                                    Loading...
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Recent Activity / Quick Actions -->
+                        <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                            <h3 class="text-lg font-semibold mb-4 flex items-center">
+                                <i class="fas fa-bolt text-warning mr-2"></i>
+                                Quick Actions
+                            </h3>
+                            <div class="grid grid-cols-2 gap-4">
+                                <button onclick="showSection('monitoring')" class="p-4 bg-gray-700/50 rounded-xl hover:bg-gray-700 transition-colors text-left">
+                                    <i class="fas fa-chart-line text-primary text-2xl mb-2"></i>
+                                    <p class="font-medium">View Monitoring</p>
+                                    <p class="text-xs text-gray-500">Real-time status</p>
+                                </button>
+                                <button onclick="showSection('apps')" class="p-4 bg-gray-700/50 rounded-xl hover:bg-gray-700 transition-colors text-left">
+                                    <i class="fas fa-list text-accent text-2xl mb-2"></i>
+                                    <p class="font-medium">View Apps</p>
+                                    <p class="text-xs text-gray-500">Application list</p>
+                                </button>
+                                <button onclick="showSection('servers')" class="p-4 bg-gray-700/50 rounded-xl hover:bg-gray-700 transition-colors text-left">
+                                    <i class="fas fa-server text-warning text-2xl mb-2"></i>
+                                    <p class="font-medium">View Servers</p>
+                                    <p class="text-xs text-gray-500">SSH servers</p>
+                                </button>
+                                <button onclick="window.open('https://github.com', '_blank')" class="p-4 bg-gray-700/50 rounded-xl hover:bg-gray-700 transition-colors text-left">
+                                    <i class="fab fa-github text-white text-2xl mb-2"></i>
+                                    <p class="font-medium">GitHub</p>
+                                    <p class="text-xs text-gray-500">Open repository</p>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Monitoring Section -->
+                <section id="section-monitoring" class="section hidden">
+                    <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50 mb-6">
+                        <div class="flex items-center justify-between mb-6">
+                            <h3 class="text-lg font-semibold flex items-center">
+                                <i class="fas fa-globe text-accent mr-2"></i>
+                                Websites
+                            </h3>
+                            <span id="websites-count" class="px-3 py-1 bg-accent/20 text-accent rounded-full text-sm">0</span>
+                        </div>
+                        <div id="websites-list" class="space-y-3">
+                            <p class="text-gray-500 text-center py-4">No websites configured</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                            <div class="flex items-center justify-between mb-6">
+                                <h3 class="text-lg font-semibold flex items-center">
+                                    <i class="fas fa-cube text-primary mr-2"></i>
+                                    Apps
+                                </h3>
+                                <span id="monitor-apps-count" class="px-3 py-1 bg-primary/20 text-primary rounded-full text-sm">0</span>
+                            </div>
+                            <div id="monitor-apps-list" class="space-y-3">
+                                <p class="text-gray-500 text-center py-4">No apps in monitoring</p>
+                            </div>
+                        </div>
+
+                        <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                            <div class="flex items-center justify-between mb-6">
+                                <h3 class="text-lg font-semibold flex items-center">
+                                    <i class="fas fa-server text-warning mr-2"></i>
+                                    Servers
+                                </h3>
+                                <span id="monitor-servers-count" class="px-3 py-1 bg-warning/20 text-warning rounded-full text-sm">0</span>
+                            </div>
+                            <div id="monitor-servers-list" class="space-y-3">
+                                <p class="text-gray-500 text-center py-4">No servers in monitoring</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Apps Section -->
+                <section id="section-apps" class="section hidden">
+                    <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                        <div class="flex items-center justify-between mb-6">
+                            <h3 class="text-lg font-semibold flex items-center">
+                                <i class="fas fa-cube text-primary mr-2"></i>
+                                Configured Applications
+                            </h3>
+                        </div>
+                        <div id="apps-list" class="space-y-4">
+                            <p class="text-gray-500 text-center py-8">Loading applications...</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Servers Section -->
+                <section id="section-servers" class="section hidden">
+                    <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                        <div class="flex items-center justify-between mb-6">
+                            <h3 class="text-lg font-semibold flex items-center">
+                                <i class="fas fa-server text-warning mr-2"></i>
+                                SSH Servers
+                            </h3>
+                        </div>
+                        <div id="servers-list" class="space-y-4">
+                            <p class="text-gray-500 text-center py-8">Loading servers...</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Users Section (Admin Only) -->
+                <section id="section-users" class="section hidden">
+                    <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                        <div class="flex items-center justify-between mb-6">
+                            <h3 class="text-lg font-semibold flex items-center">
+                                <i class="fas fa-users text-secondary mr-2"></i>
+                                Team Members
+                            </h3>
+                            <button onclick="showAddUserModal()" class="px-4 py-2 bg-primary rounded-lg hover:bg-primary/80 transition-colors">
+                                <i class="fas fa-plus mr-2"></i>Add User
+                            </button>
+                        </div>
+                        <div id="users-list" class="space-y-4">
+                            <p class="text-gray-500 text-center py-8">Loading users...</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Deployments Section -->
+                <section id="section-deployments" class="section hidden">
+                    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+                        <div class="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Total Deployments</p>
+                                    <p id="deploy-total" class="text-2xl font-bold">-</p>
+                                </div>
+                                <i class="fas fa-rocket text-pink-500 text-xl"></i>
+                            </div>
+                        </div>
+                        <div class="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Successful</p>
+                                    <p id="deploy-success" class="text-2xl font-bold text-success">-</p>
+                                </div>
+                                <i class="fas fa-check-circle text-success text-xl"></i>
+                            </div>
+                        </div>
+                        <div class="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Failed</p>
+                                    <p id="deploy-failed" class="text-2xl font-bold text-danger">-</p>
+                                </div>
+                                <i class="fas fa-times-circle text-danger text-xl"></i>
+                            </div>
+                        </div>
+                        <div class="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">In Progress</p>
+                                    <p id="deploy-progress" class="text-2xl font-bold text-warning">-</p>
+                                </div>
+                                <i class="fas fa-spinner fa-spin text-warning text-xl"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                        <div class="flex items-center justify-between mb-6">
+                            <h3 class="text-lg font-semibold flex items-center">
+                                <i class="fas fa-rocket text-pink-500 mr-2"></i>
+                                Deployment History
+                            </h3>
+                            <div class="flex space-x-2">
+                                <select id="deployFilterApp" onchange="loadDeployments()" class="px-3 py-1 bg-gray-700 rounded-lg border border-gray-600 text-sm">
+                                    <option value="">All Apps</option>
+                                </select>
+                                <select id="deployFilterStatus" onchange="loadDeployments()" class="px-3 py-1 bg-gray-700 rounded-lg border border-gray-600 text-sm">
+                                    <option value="all">All Status</option>
+                                    <option value="success">Success</option>
+                                    <option value="failed">Failed</option>
+                                    <option value="in_progress">In Progress</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="deployments-list" class="space-y-3">
+                            <p class="text-gray-500 text-center py-8">Loading deployments...</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- GitHub Repos Section -->
+                <section id="section-repos" class="section hidden">
+                    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+                        <div class="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Total Repos</p>
+                                    <p id="repos-total" class="text-2xl font-bold">-</p>
+                                </div>
+                                <i class="fab fa-github text-white text-xl"></i>
+                            </div>
+                        </div>
+                        <div class="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Your Team</p>
+                                    <p id="repos-team" class="text-2xl font-bold text-primary">-</p>
+                                </div>
+                                <i class="fas fa-users text-primary text-xl"></i>
+                            </div>
+                        </div>
+                        <div class="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Organization</p>
+                                    <p id="repos-org" class="text-lg font-bold text-secondary">-</p>
+                                </div>
+                                <i class="fas fa-building text-secondary text-xl"></i>
+                            </div>
+                        </div>
+                        <div class="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Org Total</p>
+                                    <p id="repos-org-total" class="text-2xl font-bold text-gray-400">-</p>
+                                </div>
+                                <i class="fas fa-globe text-gray-400 text-xl"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                        <div class="flex items-center justify-between mb-6">
+                            <h3 class="text-lg font-semibold flex items-center">
+                                <i class="fab fa-github mr-2"></i>
+                                <span id="repos-title">GitHub Repositories</span>
+                            </h3>
+                            <button onclick="loadRepos()" class="px-4 py-2 bg-gray-700 rounded-lg text-sm hover:bg-gray-600 flex items-center">
+                                <i class="fas fa-sync-alt mr-2"></i>Refresh
+                            </button>
+                        </div>
+                        <div id="repos-error" class="hidden mb-4 p-4 bg-red-900/30 rounded-lg border border-red-700/50">
+                            <p class="text-red-400"><i class="fas fa-exclamation-triangle mr-2"></i><span id="repos-error-text"></span></p>
+                            <p id="repos-error-hint" class="text-gray-400 text-sm mt-1"></p>
+                        </div>
+                        <div id="repos-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <p class="text-gray-500 text-center py-8 col-span-3">Loading repositories...</p>
+                        </div>
+                    </div>
+
+                    {% if user.role == 'admin' %}
+                    <div class="mt-6 bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                        <h3 class="text-lg font-semibold mb-4 flex items-center">
+                            <i class="fas fa-cog text-gray-400 mr-2"></i>
+                            GitHub Configuration
+                        </h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-1">GitHub Organization</label>
+                                <input type="text" id="github-org-input" class="w-full px-3 py-2 bg-gray-700 rounded-lg border border-gray-600 text-white" placeholder="e.g., anthropics">
+                            </div>
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-1">Personal Access Token (optional)</label>
+                                <input type="password" id="github-token-input" class="w-full px-3 py-2 bg-gray-700 rounded-lg border border-gray-600 text-white" placeholder="ghp_...">
+                            </div>
+                        </div>
+                        <button onclick="saveGitHubConfig()" class="mt-4 px-4 py-2 bg-primary rounded-lg text-white hover:bg-primary/80">
+                            <i class="fas fa-save mr-2"></i>Save Configuration
+                        </button>
+                        <p class="text-xs text-gray-500 mt-2">Configure team repo access in ~/.devops-cli/teams.yaml</p>
+                    </div>
+                    {% endif %}
+                </section>
+
+                <!-- Logs Section -->
+                <section id="section-logs" class="section hidden">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <!-- Log Source Selector -->
+                        <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                            <h3 class="text-lg font-semibold mb-4 flex items-center">
+                                <i class="fas fa-list text-emerald-500 mr-2"></i>
+                                Log Sources
+                            </h3>
+                            <div id="log-sources" class="space-y-2">
+                                <p class="text-gray-500 text-sm">Loading sources...</p>
+                            </div>
+                        </div>
+
+                        <!-- Log Viewer -->
+                        <div class="lg:col-span-2 bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-lg font-semibold flex items-center">
+                                    <i class="fas fa-scroll text-emerald-500 mr-2"></i>
+                                    <span id="log-viewer-title">Select a log source</span>
+                                </h3>
+                                <div class="flex space-x-2">
+                                    <select id="logLevelFilter" onchange="filterLogs()" class="px-3 py-1 bg-gray-700 rounded-lg border border-gray-600 text-sm">
+                                        <option value="all">All Levels</option>
+                                        <option value="error">Error</option>
+                                        <option value="warn">Warning</option>
+                                        <option value="info">Info</option>
+                                        <option value="debug">Debug</option>
+                                    </select>
+                                    <button id="liveLogBtn" onclick="toggleLiveLogs()" class="px-3 py-1 bg-gray-700 rounded-lg border border-gray-600 text-sm hover:bg-gray-600">
+                                        <i class="fas fa-play mr-1"></i> Live
+                                    </button>
+                                    <button onclick="refreshLogs()" class="px-3 py-1 bg-gray-700 rounded-lg border border-gray-600 text-sm hover:bg-gray-600">
+                                        <i class="fas fa-sync-alt"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="log-viewer" class="bg-gray-900 rounded-xl p-4 h-96 overflow-y-auto font-mono text-sm">
+                                <p class="text-gray-500">Select an application or server to view logs</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Activity Section -->
+                <section id="section-activity" class="section hidden">
+                    <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                        <div class="flex items-center justify-between mb-6">
+                            <h3 class="text-lg font-semibold flex items-center">
+                                <i class="fas fa-history text-blue-400 mr-2"></i>
+                                Activity Log
+                            </h3>
+                            <div class="flex space-x-2">
+                                <select id="activityFilter" onchange="loadActivity()" class="px-3 py-1 bg-gray-700 rounded-lg border border-gray-600 text-sm">
+                                    <option value="all">All Activity</option>
+                                    <option value="login">Logins</option>
+                                    <option value="deploy">Deployments</option>
+                                    <option value="config">Config Changes</option>
+                                    <option value="user">User Management</option>
+                                    <option value="alert">Alerts</option>
+                                </select>
+                                <button onclick="loadActivity()" class="px-3 py-1 bg-gray-700 rounded-lg text-sm hover:bg-gray-600">
+                                    <i class="fas fa-sync-alt"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div id="activity-list" class="space-y-3 max-h-[600px] overflow-y-auto">
+                            <p class="text-gray-500 text-center py-8">Loading activity...</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Documents Section (Admin Only) -->
+                <section id="section-documents" class="section hidden">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <!-- Upload Panel -->
+                        <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                            <h3 class="text-lg font-semibold mb-4 flex items-center">
+                                <i class="fas fa-upload text-orange-500 mr-2"></i>
+                                Upload Document
+                            </h3>
+                            <form id="uploadDocForm" class="space-y-4">
+                                <div>
+                                    <label class="block text-sm text-gray-400 mb-1">Resource Type</label>
+                                    <select id="docResourceType" class="w-full px-3 py-2 bg-gray-700 rounded-lg border border-gray-600 text-sm" onchange="loadResourceOptions()">
+                                        <option value="app">Application</option>
+                                        <option value="server">Server</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm text-gray-400 mb-1">Resource Name</label>
+                                    <select id="docResourceName" class="w-full px-3 py-2 bg-gray-700 rounded-lg border border-gray-600 text-sm">
+                                        <option value="">Select resource...</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm text-gray-400 mb-1">Document File</label>
+                                    <input type="file" id="docFile" accept=".pdf,.txt,.log,.md" class="w-full px-3 py-2 bg-gray-700 rounded-lg border border-gray-600 text-sm file:mr-4 file:py-1 file:px-3 file:rounded file:border-0 file:bg-primary file:text-white file:cursor-pointer">
+                                    <p class="text-xs text-gray-500 mt-1">Supported: PDF, TXT, LOG, MD</p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm text-gray-400 mb-1">Description (optional)</label>
+                                    <input type="text" id="docDescription" placeholder="e.g., Application logs guide" class="w-full px-3 py-2 bg-gray-700 rounded-lg border border-gray-600 text-sm">
+                                </div>
+                                <button type="submit" class="w-full px-4 py-2 bg-orange-500 rounded-lg hover:bg-orange-600 transition-colors">
+                                    <i class="fas fa-cloud-upload-alt mr-2"></i>Upload Document
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Documents List -->
+                        <div class="lg:col-span-2 bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                            <div class="flex items-center justify-between mb-6">
+                                <h3 class="text-lg font-semibold flex items-center">
+                                    <i class="fas fa-file-alt text-orange-500 mr-2"></i>
+                                    Uploaded Documents
+                                </h3>
+                                <button onclick="loadDocuments()" class="px-3 py-1 bg-gray-700 rounded-lg text-sm hover:bg-gray-600">
+                                    <i class="fas fa-sync-alt"></i>
+                                </button>
+                            </div>
+                            <div id="documents-list" class="space-y-3">
+                                <p class="text-gray-500 text-center py-8">Loading documents...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Info Panel -->
+                    <div class="mt-6 bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
+                        <h4 class="font-semibold text-blue-400 mb-2"><i class="fas fa-info-circle mr-2"></i>About Log Documents</h4>
+                        <p class="text-sm text-gray-300">
+                            Upload documentation files (PDF, TXT) to provide log information when live log sources are unavailable.
+                            The system will prioritize live sources (CloudWatch, EC2, Docker) and fall back to uploaded documents.
+                        </p>
+                        <div class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                            <div class="bg-gray-800/50 rounded-lg p-3">
+                                <p class="text-success font-medium"><i class="fas fa-check-circle mr-1"></i>Priority 1: Live Sources</p>
+                                <p class="text-gray-400 text-xs">CloudWatch, EC2, Docker, K8s</p>
+                            </div>
+                            <div class="bg-gray-800/50 rounded-lg p-3">
+                                <p class="text-warning font-medium"><i class="fas fa-file mr-1"></i>Priority 2: Documents</p>
+                                <p class="text-gray-400 text-xs">Uploaded PDF/TXT files</p>
+                            </div>
+                            <div class="bg-gray-800/50 rounded-lg p-3">
+                                <p class="text-gray-400 font-medium"><i class="fas fa-comment mr-1"></i>Priority 3: Friendly Message</p>
+                                <p class="text-gray-400 text-xs">Helpful guidance for developers</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- Add User Modal -->
+    <div id="addUserModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm hidden z-50 flex items-center justify-center">
+        <div class="bg-gray-800 rounded-2xl p-6 w-full max-w-md mx-4 border border-gray-700">
+            <h3 class="text-lg font-semibold mb-4">Add New User</h3>
+            <form id="addUserForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Email</label>
+                    <input type="email" id="newUserEmail" required class="w-full px-4 py-2 bg-gray-700 rounded-lg border border-gray-600 focus:border-primary focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Name</label>
+                    <input type="text" id="newUserName" class="w-full px-4 py-2 bg-gray-700 rounded-lg border border-gray-600 focus:border-primary focus:outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Role</label>
+                    <select id="newUserRole" class="w-full px-4 py-2 bg-gray-700 rounded-lg border border-gray-600 focus:border-primary focus:outline-none">
+                        <option value="developer">Developer</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+                <div id="newUserToken" class="hidden bg-gray-900 p-4 rounded-lg">
+                    <p class="text-sm text-gray-400 mb-2">Access Token (save this!):</p>
+                    <code id="tokenValue" class="text-primary break-all"></code>
+                </div>
+                <div class="flex space-x-3">
+                    <button type="button" onclick="hideAddUserModal()" class="flex-1 px-4 py-2 bg-gray-700 rounded-lg hover:bg-gray-600 transition-colors">Cancel</button>
+                    <button type="submit" class="flex-1 px-4 py-2 bg-primary rounded-lg hover:bg-primary/80 transition-colors">Create User</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Update time
+        function updateTime() {
+            document.getElementById('currentTime').textContent = new Date().toLocaleTimeString();
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+
+        // Section navigation
+        function showSection(section) {
+            document.querySelectorAll('.section').forEach(s => s.classList.add('hidden'));
+            document.getElementById(`section-${section}`).classList.remove('hidden');
+
+            document.querySelectorAll('.sidebar-item').forEach(item => {
+                item.classList.remove('active');
+                if (item.dataset.section === section) {
+                    item.classList.add('active');
+                }
+            });
+
+            const titles = {
+                'overview': 'Overview',
+                'monitoring': 'Monitoring',
+                'apps': 'Applications',
+                'servers': 'Servers',
+                'users': 'Users',
+                'deployments': 'Deployments',
+                'repos': 'Repositories',
+                'logs': 'Logs',
+                'activity': 'Activity',
+                'documents': 'Documents'
+            };
+            document.getElementById('pageTitle').textContent = titles[section] || 'Dashboard';
+
+            // Load section data
+            if (section === 'apps') loadApps();
+            if (section === 'servers') loadServers();
+            if (section === 'users') loadUsers();
+            if (section === 'monitoring') loadMonitoring();
+            if (section === 'deployments') loadDeployments();
+            if (section === 'repos') loadRepos();
+            if (section === 'logs') loadLogSources();
+            if (section === 'activity') loadActivity();
+            if (section === 'documents') { loadDocuments(); loadResourceOptions(); }
+        }
+
+        // Logout
+        async function logout() {
+            await fetch('/api/auth/logout', { method: 'POST' });
+            window.location.href = '/login';
+        }
+
+        // Refresh data
+        function refreshData() {
+            loadConfigStatus();
+            loadMonitoring();
+            const activeSection = document.querySelector('.sidebar-item.active')?.dataset.section;
+            if (activeSection) showSection(activeSection);
+        }
+
+        // Load config status
+        async function loadConfigStatus() {
+            try {
+                const response = await fetch('/api/config/status');
+                const data = await response.json();
+
+                document.getElementById('stat-apps').textContent = data.apps_count || 0;
+                document.getElementById('stat-servers').textContent = data.servers_count || 0;
+            } catch (error) {
+                console.error('Error loading config status:', error);
+            }
+        }
+
+        // Load monitoring data
+        async function loadMonitoring() {
+            try {
+                const response = await fetch('/api/monitoring');
+                const data = await response.json();
+
+                document.getElementById('stat-online').textContent = data.summary?.online || 0;
+                document.getElementById('stat-offline').textContent = data.summary?.offline || 0;
+
+                // Update live status on overview
+                const liveStatus = document.getElementById('live-status');
+                const allItems = [...(data.websites || []), ...(data.apps || []), ...(data.servers || [])];
+
+                if (allItems.length === 0) {
+                    liveStatus.innerHTML = '<p class="text-gray-500 text-center py-4">No resources configured for monitoring</p>';
+                } else {
+                    liveStatus.innerHTML = allItems.slice(0, 6).map(item => `
+                        <div class="flex items-center justify-between p-3 bg-gray-700/50 rounded-lg">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-3 h-3 rounded-full ${item.status === 'online' ? 'bg-success' : item.status === 'degraded' ? 'bg-warning' : 'bg-danger'} ${item.status === 'online' ? '' : 'status-pulse'}"></div>
+                                <span>${item.name}</span>
+                            </div>
+                            <span class="text-sm ${item.status === 'online' ? 'text-success' : item.status === 'degraded' ? 'text-warning' : 'text-danger'}">${item.status}</span>
+                        </div>
+                    `).join('');
+                }
+
+                // Update monitoring section
+                updateMonitoringSection(data);
+
+            } catch (error) {
+                console.error('Error loading monitoring:', error);
+            }
+        }
+
+        function updateMonitoringSection(data) {
+            // Websites
+            const websitesList = document.getElementById('websites-list');
+            document.getElementById('websites-count').textContent = data.websites?.length || 0;
+
+            if (data.websites && data.websites.length > 0) {
+                websitesList.innerHTML = data.websites.map(w => `
+                    <div class="flex items-center justify-between p-4 bg-gray-700/30 rounded-xl">
+                        <div class="flex items-center space-x-4">
+                            <div class="w-3 h-3 rounded-full ${w.status === 'online' ? 'bg-success' : 'bg-danger'}"></div>
+                            <div>
+                                <p class="font-medium">${w.name}</p>
+                                <p class="text-sm text-gray-500">${w.url || ''}</p>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <p class="${w.status === 'online' ? 'text-success' : 'text-danger'}">${w.status}</p>
+                            <p class="text-sm text-gray-500">${w.response_time ? w.response_time + 'ms' : '-'}</p>
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                websitesList.innerHTML = '<p class="text-gray-500 text-center py-4">No websites configured</p>';
+            }
+
+            // Apps
+            const appsList = document.getElementById('monitor-apps-list');
+            document.getElementById('monitor-apps-count').textContent = data.apps?.length || 0;
+
+            if (data.apps && data.apps.length > 0) {
+                appsList.innerHTML = data.apps.map(a => `
+                    <div class="flex items-center justify-between p-3 bg-gray-700/30 rounded-lg">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-3 h-3 rounded-full ${a.status === 'online' ? 'bg-success' : 'bg-danger'}"></div>
+                            <span>${a.name}</span>
+                        </div>
+                        <span class="${a.status === 'online' ? 'text-success' : 'text-danger'}">${a.status}</span>
+                    </div>
+                `).join('');
+            } else {
+                appsList.innerHTML = '<p class="text-gray-500 text-center py-4">No apps in monitoring</p>';
+            }
+
+            // Servers
+            const serversList = document.getElementById('monitor-servers-list');
+            document.getElementById('monitor-servers-count').textContent = data.servers?.length || 0;
+
+            if (data.servers && data.servers.length > 0) {
+                serversList.innerHTML = data.servers.map(s => `
+                    <div class="flex items-center justify-between p-3 bg-gray-700/30 rounded-lg">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-3 h-3 rounded-full ${s.status === 'online' ? 'bg-success' : 'bg-danger'}"></div>
+                            <span>${s.name}</span>
+                        </div>
+                        <span class="${s.status === 'online' ? 'text-success' : 'text-danger'}">${s.status}</span>
+                    </div>
+                `).join('');
+            } else {
+                serversList.innerHTML = '<p class="text-gray-500 text-center py-4">No servers in monitoring</p>';
+            }
+        }
+
+        // Load apps
+        async function loadApps() {
+            try {
+                const response = await fetch('/api/apps');
+                const data = await response.json();
+
+                const appsList = document.getElementById('apps-list');
+
+                if (data.apps && data.apps.length > 0) {
+                    appsList.innerHTML = data.apps.map(app => `
+                        <div class="p-4 bg-gray-700/30 rounded-xl hover:bg-gray-700/50 transition-colors">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center space-x-4">
+                                    <div class="w-12 h-12 bg-primary/20 rounded-xl flex items-center justify-center">
+                                        <i class="fas fa-cube text-primary"></i>
+                                    </div>
+                                    <div>
+                                        <p class="font-medium">${app.name}</p>
+                                        <p class="text-sm text-gray-500">${app.type} • ${app.description || 'No description'}</p>
+                                    </div>
+                                </div>
+                                <button onclick="checkAppHealth('${app.name}')" class="px-3 py-1 bg-gray-600 rounded-lg hover:bg-gray-500 transition-colors text-sm">
+                                    <i class="fas fa-heartbeat mr-1"></i>Health
+                                </button>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    appsList.innerHTML = '<p class="text-gray-500 text-center py-8">No applications configured. Run: devops admin app-add</p>';
+                }
+            } catch (error) {
+                console.error('Error loading apps:', error);
+            }
+        }
+
+        // Check app health
+        async function checkAppHealth(appName) {
+            try {
+                const response = await fetch(`/api/apps/${appName}/health`);
+                const data = await response.json();
+                alert(`${appName}: ${data.status}\n${data.response_time ? 'Response: ' + data.response_time + 'ms' : ''}\n${data.error || data.message || ''}`);
+            } catch (error) {
+                alert('Error checking health: ' + error.message);
+            }
+        }
+
+        // Load servers
+        async function loadServers() {
+            try {
+                const response = await fetch('/api/servers');
+                const data = await response.json();
+
+                const serversList = document.getElementById('servers-list');
+
+                if (data.servers && data.servers.length > 0) {
+                    serversList.innerHTML = data.servers.map(server => `
+                        <div class="p-4 bg-gray-700/30 rounded-xl">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center space-x-4">
+                                    <div class="w-12 h-12 bg-warning/20 rounded-xl flex items-center justify-center">
+                                        <i class="fas fa-server text-warning"></i>
+                                    </div>
+                                    <div>
+                                        <p class="font-medium">${server.name}</p>
+                                        <p class="text-sm text-gray-500">${server.user}@${server.host}:${server.port}</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    ${server.tags.map(tag => `<span class="px-2 py-1 bg-gray-600 rounded text-xs">${tag}</span>`).join('')}
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    serversList.innerHTML = '<p class="text-gray-500 text-center py-8">No servers configured. Run: devops admin server-add</p>';
+                }
+            } catch (error) {
+                console.error('Error loading servers:', error);
+            }
+        }
+
+        // Load users
+        async function loadUsers() {
+            try {
+                const response = await fetch('/api/users');
+                if (response.status === 403) {
+                    document.getElementById('users-list').innerHTML = '<p class="text-gray-500 text-center py-8">Admin access required</p>';
+                    return;
+                }
+                const data = await response.json();
+
+                const usersList = document.getElementById('users-list');
+
+                if (data.users && data.users.length > 0) {
+                    usersList.innerHTML = data.users.map(user => `
+                        <div class="p-4 bg-gray-700/30 rounded-xl">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center space-x-4">
+                                    <div class="w-12 h-12 bg-secondary/20 rounded-full flex items-center justify-center">
+                                        <span class="font-bold text-secondary">${(user.name || user.email)[0].toUpperCase()}</span>
+                                    </div>
+                                    <div>
+                                        <p class="font-medium">${user.name || user.email.split('@')[0]}</p>
+                                        <p class="text-sm text-gray-500">${user.email}</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center space-x-3">
+                                    <span class="px-3 py-1 ${user.role === 'admin' ? 'bg-secondary/20 text-secondary' : 'bg-primary/20 text-primary'} rounded-full text-sm">${user.role}</span>
+                                    <span class="px-3 py-1 ${user.active !== false ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger'} rounded-full text-sm">${user.active !== false ? 'Active' : 'Inactive'}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    usersList.innerHTML = '<p class="text-gray-500 text-center py-8">No users found</p>';
+                }
+            } catch (error) {
+                console.error('Error loading users:', error);
+            }
+        }
+
+        // Add user modal
+        function showAddUserModal() {
+            document.getElementById('addUserModal').classList.remove('hidden');
+            document.getElementById('newUserToken').classList.add('hidden');
+        }
+
+        function hideAddUserModal() {
+            document.getElementById('addUserModal').classList.add('hidden');
+            document.getElementById('addUserForm').reset();
+            document.getElementById('newUserToken').classList.add('hidden');
+        }
+
+        document.getElementById('addUserForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const email = document.getElementById('newUserEmail').value;
+            const name = document.getElementById('newUserName').value;
+            const role = document.getElementById('newUserRole').value;
+
+            try {
+                const response = await fetch('/api/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, name, role })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.token) {
+                    document.getElementById('tokenValue').textContent = data.token;
+                    document.getElementById('newUserToken').classList.remove('hidden');
+                    loadUsers();
+                } else {
+                    alert(data.detail || 'Error creating user');
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        });
+
+        // ==================== Deployments ====================
+        async function loadDeployments() {
+            try {
+                const appFilter = document.getElementById('deployFilterApp')?.value || '';
+                const statusFilter = document.getElementById('deployFilterStatus')?.value || 'all';
+
+                const response = await fetch(`/api/deployments?app_name=${appFilter}&status=${statusFilter}`);
+                const data = await response.json();
+
+                // Update stats
+                const deployments = data.deployments || [];
+                document.getElementById('deploy-total').textContent = deployments.length;
+                document.getElementById('deploy-success').textContent = deployments.filter(d => d.status === 'success').length;
+                document.getElementById('deploy-failed').textContent = deployments.filter(d => d.status === 'failed').length;
+                document.getElementById('deploy-progress').textContent = deployments.filter(d => d.status === 'in_progress').length;
+
+                // Populate app filter
+                const appSelect = document.getElementById('deployFilterApp');
+                if (appSelect && appSelect.options.length <= 1 && data.apps) {
+                    data.apps.forEach(app => {
+                        const option = document.createElement('option');
+                        option.value = app;
+                        option.textContent = app;
+                        appSelect.appendChild(option);
+                    });
+                }
+
+                // Render deployments
+                const list = document.getElementById('deployments-list');
+                if (deployments.length > 0) {
+                    list.innerHTML = deployments.map(d => `
+                        <div class="p-4 bg-gray-700/30 rounded-xl hover:bg-gray-700/50 transition-colors">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center space-x-4">
+                                    <div class="w-12 h-12 rounded-xl flex items-center justify-center ${
+                                        d.status === 'success' ? 'bg-success/20' :
+                                        d.status === 'failed' ? 'bg-danger/20' :
+                                        d.status === 'in_progress' ? 'bg-warning/20' : 'bg-gray-600/20'
+                                    }">
+                                        <i class="fas ${
+                                            d.status === 'success' ? 'fa-check text-success' :
+                                            d.status === 'failed' ? 'fa-times text-danger' :
+                                            d.status === 'in_progress' ? 'fa-spinner fa-spin text-warning' : 'fa-undo text-gray-400'
+                                        } text-xl"></i>
+                                    </div>
+                                    <div>
+                                        <div class="flex items-center space-x-2">
+                                            <p class="font-medium">${d.app}</p>
+                                            <span class="px-2 py-0.5 bg-gray-600 rounded text-xs">${d.version}</span>
+                                            <span class="px-2 py-0.5 ${d.environment === 'production' ? 'bg-danger/20 text-danger' : 'bg-warning/20 text-warning'} rounded text-xs">${d.environment}</span>
+                                        </div>
+                                        <p class="text-sm text-gray-400">${d.message}</p>
+                                        <p class="text-xs text-gray-500 mt-1">
+                                            <i class="fas fa-user mr-1"></i>${d.deployed_by} •
+                                            <i class="fas fa-clock mr-1"></i>${new Date(d.deployed_at).toLocaleString()} •
+                                            <i class="fas fa-stopwatch mr-1"></i>${d.duration}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <span class="px-3 py-1 rounded-full text-sm ${
+                                        d.status === 'success' ? 'bg-success/20 text-success' :
+                                        d.status === 'failed' ? 'bg-danger/20 text-danger' :
+                                        d.status === 'in_progress' ? 'bg-warning/20 text-warning' : 'bg-gray-600/20 text-gray-400'
+                                    }">${d.status.replace('_', ' ')}</span>
+                                    <p class="text-xs text-gray-500 mt-2"><i class="fas fa-code-commit mr-1"></i>${d.commit}</p>
+                                </div>
+                            </div>
+                            ${d.error ? `<div class="mt-3 p-2 bg-danger/10 border border-danger/30 rounded-lg text-sm text-danger"><i class="fas fa-exclamation-triangle mr-2"></i>${d.error}</div>` : ''}
+                        </div>
+                    `).join('');
+                } else {
+                    list.innerHTML = '<p class="text-gray-500 text-center py-8">No deployments found</p>';
+                }
+            } catch (error) {
+                console.error('Error loading deployments:', error);
+            }
+        }
+
+        // ==================== GitHub Repos ====================
+        async function loadRepos() {
+            try {
+                const response = await fetch('/api/github/repos');
+                const data = await response.json();
+
+                // Update stats
+                document.getElementById('repos-total').textContent = data.total || 0;
+                document.getElementById('repos-team').textContent = data.team_name || '-';
+                document.getElementById('repos-org').textContent = data.org || '-';
+                document.getElementById('repos-org-total').textContent = data.all_count || 0;
+                document.getElementById('repos-title').textContent = data.org ? `${data.org} Repositories` : 'GitHub Repositories';
+
+                // Show error if any
+                const errorDiv = document.getElementById('repos-error');
+                if (data.error) {
+                    errorDiv.classList.remove('hidden');
+                    document.getElementById('repos-error-text').textContent = data.error;
+                    document.getElementById('repos-error-hint').textContent = data.hint || '';
+                } else {
+                    errorDiv.classList.add('hidden');
+                }
+
+                // Render repos
+                const list = document.getElementById('repos-list');
+                const repos = data.repos || [];
+                if (repos.length > 0) {
+                    list.innerHTML = repos.map(r => `
+                        <a href="${r.url}" target="_blank" class="block p-4 bg-gray-700/30 rounded-xl hover:bg-gray-700/50 transition-colors border border-gray-600/30 hover:border-primary/50">
+                            <div class="flex items-start justify-between mb-2">
+                                <h4 class="font-medium text-white flex items-center">
+                                    <i class="${r.private ? 'fas fa-lock text-yellow-500' : 'fab fa-github'} mr-2"></i>
+                                    ${r.name}
+                                </h4>
+                                ${r.language ? `<span class="px-2 py-0.5 bg-primary/20 text-primary rounded text-xs">${r.language}</span>` : ''}
+                            </div>
+                            <p class="text-sm text-gray-400 mb-3 line-clamp-2">${r.description}</p>
+                            <div class="flex items-center text-xs text-gray-500 space-x-3">
+                                <span><i class="fas fa-star text-yellow-500 mr-1"></i>${r.stars}</span>
+                                <span><i class="fas fa-code-branch mr-1"></i>${r.forks}</span>
+                                <span><i class="fas fa-code-branch mr-1"></i>${r.default_branch}</span>
+                            </div>
+                        </a>
+                    `).join('');
+                } else if (!data.error) {
+                    list.innerHTML = '<p class="text-gray-500 text-center py-8 col-span-3">No repositories found for your team</p>';
+                } else {
+                    list.innerHTML = '';
+                }
+
+                // Load config for admin
+                loadGitHubConfig();
+            } catch (error) {
+                console.error('Error loading repos:', error);
+            }
+        }
+
+        async function loadGitHubConfig() {
+            try {
+                const response = await fetch('/api/github/config');
+                if (response.ok) {
+                    const data = await response.json();
+                    const orgInput = document.getElementById('github-org-input');
+                    if (orgInput) orgInput.value = data.org || '';
+                }
+            } catch (e) {}
+        }
+
+        async function saveGitHubConfig() {
+            try {
+                const org = document.getElementById('github-org-input')?.value || '';
+                const token = document.getElementById('github-token-input')?.value || '';
+
+                const response = await fetch('/api/github/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ org, token: token || undefined })
+                });
+
+                if (response.ok) {
+                    alert('GitHub configuration saved!');
+                    loadRepos();
+                }
+            } catch (error) {
+                alert('Error saving configuration');
+            }
+        }
+
+        // ==================== Logs ====================
+        let currentLogSource = null;
+        let liveLogEventSource = null;
+        let currentLogs = [];
+
+        async function loadLogSources() {
+            try {
+                const appsResponse = await fetch('/api/apps');
+                const appsData = await appsResponse.json();
+
+                const serversResponse = await fetch('/api/servers');
+                const serversData = await serversResponse.json();
+
+                const sources = document.getElementById('log-sources');
+                let html = '';
+
+                // Apps
+                if (appsData.apps && appsData.apps.length > 0) {
+                    html += '<p class="text-xs text-gray-500 uppercase mb-2">Applications</p>';
+                    html += appsData.apps.map(app => `
+                        <button onclick="loadAppLogs('${app.name}')" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-700/50 transition-colors flex items-center justify-between group log-source-btn" data-source="app-${app.name}">
+                            <span class="flex items-center">
+                                <i class="fas fa-cube text-accent mr-2"></i>
+                                ${app.name}
+                            </span>
+                            <span class="text-xs text-gray-500">${app.type}</span>
+                        </button>
+                    `).join('');
+                }
+
+                // Servers
+                if (serversData.servers && serversData.servers.length > 0) {
+                    html += '<p class="text-xs text-gray-500 uppercase mb-2 mt-4">Servers</p>';
+                    html += serversData.servers.map(server => `
+                        <button onclick="loadServerLogs('${server.name}')" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-700/50 transition-colors flex items-center justify-between group log-source-btn" data-source="server-${server.name}">
+                            <span class="flex items-center">
+                                <i class="fas fa-server text-warning mr-2"></i>
+                                ${server.name}
+                            </span>
+                            <span class="text-xs text-gray-500">${server.host}</span>
+                        </button>
+                    `).join('');
+                }
+
+                sources.innerHTML = html || '<p class="text-gray-500 text-sm">No log sources configured</p>';
+            } catch (error) {
+                console.error('Error loading log sources:', error);
+            }
+        }
+
+        async function loadAppLogs(appName) {
+            currentLogSource = { type: 'app', name: appName };
+            document.getElementById('log-viewer-title').textContent = `${appName} Logs`;
+
+            // Highlight active source
+            document.querySelectorAll('.log-source-btn').forEach(btn => btn.classList.remove('bg-primary/20'));
+            document.querySelector(`[data-source="app-${appName}"]`)?.classList.add('bg-primary/20');
+
+            try {
+                const level = document.getElementById('logLevelFilter').value;
+                const response = await fetch(`/api/apps/${appName}/logs?level=${level}`);
+                const data = await response.json();
+
+                currentLogs = data.logs || [];
+                renderLogs(currentLogs, data);
+            } catch (error) {
+                console.error('Error loading app logs:', error);
+            }
+        }
+
+        async function loadServerLogs(serverName) {
+            currentLogSource = { type: 'server', name: serverName };
+            document.getElementById('log-viewer-title').textContent = `${serverName} Logs`;
+
+            // Highlight active source
+            document.querySelectorAll('.log-source-btn').forEach(btn => btn.classList.remove('bg-primary/20'));
+            document.querySelector(`[data-source="server-${serverName}"]`)?.classList.add('bg-primary/20');
+
+            try {
+                const response = await fetch(`/api/servers/${serverName}/logs`);
+                const data = await response.json();
+
+                currentLogs = data.logs || [];
+                renderLogs(currentLogs, data);
+            } catch (error) {
+                console.error('Error loading server logs:', error);
+            }
+        }
+
+        function renderLogs(logs, metadata = {}) {
+            const viewer = document.getElementById('log-viewer');
+
+            // Build header with source info
+            let headerHtml = '';
+            if (metadata.source_used || metadata.document_available !== undefined) {
+                headerHtml = `<div class="mb-3 p-3 bg-gray-800 rounded-lg border border-gray-700">
+                    <div class="flex items-center justify-between flex-wrap gap-2">
+                        <div class="flex items-center space-x-3">
+                            ${metadata.source_used ? `
+                                <span class="px-2 py-1 rounded text-xs ${
+                                    metadata.source_used === 'cloudwatch' ? 'bg-orange-500/20 text-orange-400' :
+                                    metadata.source_used === 'ec2' ? 'bg-yellow-500/20 text-yellow-400' :
+                                    metadata.source_used === 'document' ? 'bg-blue-500/20 text-blue-400' :
+                                    metadata.source_used === 'none' ? 'bg-gray-500/20 text-gray-400' :
+                                    'bg-green-500/20 text-green-400'
+                                }">
+                                    <i class="fas ${
+                                        metadata.source_used === 'cloudwatch' ? 'fa-cloud' :
+                                        metadata.source_used === 'ec2' ? 'fa-server' :
+                                        metadata.source_used === 'document' ? 'fa-file-alt' :
+                                        metadata.source_used === 'none' ? 'fa-info-circle' :
+                                        'fa-stream'
+                                    } mr-1"></i>
+                                    Source: ${metadata.source_used}
+                                </span>
+                            ` : ''}
+                            ${metadata.document_available ? `
+                                <span class="px-2 py-1 rounded text-xs bg-blue-500/20 text-blue-400">
+                                    <i class="fas fa-file-alt mr-1"></i>Document available
+                                </span>
+                            ` : ''}
+                        </div>
+                        ${metadata.message ? `<span class="text-xs text-gray-400">${metadata.message}</span>` : ''}
+                    </div>
+                    ${metadata.hint ? `<p class="text-xs text-gray-500 mt-2"><i class="fas fa-lightbulb mr-1 text-yellow-500"></i>${metadata.hint}</p>` : ''}
+                </div>`;
+            }
+
+            if (logs.length > 0) {
+                viewer.innerHTML = headerHtml + logs.map(log => `
+                    <div class="flex items-start space-x-2 py-1 border-b border-gray-800/50 hover:bg-gray-800/30">
+                        <span class="text-gray-500 text-xs whitespace-nowrap">${new Date(log.timestamp).toLocaleTimeString()}</span>
+                        <span class="px-1.5 py-0.5 rounded text-xs font-medium ${
+                            log.level === 'ERROR' ? 'bg-danger/20 text-danger' :
+                            log.level === 'WARN' ? 'bg-warning/20 text-warning' :
+                            log.level === 'INFO' ? 'bg-success/20 text-success' :
+                            'bg-gray-600/20 text-gray-400'
+                        }">${log.level}</span>
+                        <span class="text-gray-300 flex-1">${log.message}</span>
+                    </div>
+                `).join('');
+                viewer.scrollTop = viewer.scrollHeight;
+            } else {
+                viewer.innerHTML = headerHtml + '<p class="text-gray-500">No logs found</p>';
+            }
+        }
+
+        function filterLogs() {
+            const level = document.getElementById('logLevelFilter').value;
+            if (level === 'all') {
+                renderLogs(currentLogs);
+            } else {
+                const filtered = currentLogs.filter(l => l.level.toLowerCase() === level);
+                renderLogs(filtered);
+            }
+        }
+
+        function refreshLogs() {
+            if (currentLogSource) {
+                if (currentLogSource.type === 'app') {
+                    loadAppLogs(currentLogSource.name);
+                } else {
+                    loadServerLogs(currentLogSource.name);
+                }
+            }
+        }
+
+        function toggleLiveLogs() {
+            const btn = document.getElementById('liveLogBtn');
+
+            if (liveLogEventSource) {
+                liveLogEventSource.close();
+                liveLogEventSource = null;
+                btn.innerHTML = '<i class="fas fa-play mr-1"></i> Live';
+                btn.classList.remove('bg-success', 'text-white');
+                return;
+            }
+
+            if (!currentLogSource || currentLogSource.type !== 'app') {
+                alert('Select an application to stream live logs');
+                return;
+            }
+
+            btn.innerHTML = '<i class="fas fa-stop mr-1"></i> Stop';
+            btn.classList.add('bg-success', 'text-white');
+
+            liveLogEventSource = new EventSource(`/api/apps/${currentLogSource.name}/logs/stream`);
+
+            liveLogEventSource.onmessage = (event) => {
+                try {
+                    const log = JSON.parse(event.data);
+                    currentLogs.push(log);
+                    if (currentLogs.length > 100) currentLogs.shift();
+                    renderLogs(currentLogs);
+                } catch (e) {
+                    console.error('Live log parse error:', e);
+                }
+            };
+
+            liveLogEventSource.onerror = () => {
+                toggleLiveLogs(); // Stop on error
+            };
+        }
+
+        // ==================== Activity ====================
+        async function loadActivity() {
+            try {
+                const filter = document.getElementById('activityFilter')?.value || 'all';
+                const response = await fetch(`/api/activity?activity_type=${filter}`);
+                const data = await response.json();
+
+                const list = document.getElementById('activity-list');
+                const activities = data.activities || [];
+
+                if (activities.length > 0) {
+                    list.innerHTML = activities.map(a => `
+                        <div class="flex items-start space-x-4 p-4 bg-gray-700/30 rounded-xl hover:bg-gray-700/50 transition-colors">
+                            <div class="w-10 h-10 rounded-full flex items-center justify-center ${
+                                a.type === 'login' ? 'bg-primary/20' :
+                                a.type === 'deploy' ? 'bg-pink-500/20' :
+                                a.type === 'config' ? 'bg-accent/20' :
+                                a.type === 'user' ? 'bg-secondary/20' :
+                                a.type === 'alert' ? 'bg-warning/20' : 'bg-gray-600/20'
+                            }">
+                                <i class="fas ${
+                                    a.type === 'login' ? 'fa-sign-in-alt text-primary' :
+                                    a.type === 'deploy' ? 'fa-rocket text-pink-500' :
+                                    a.type === 'config' ? 'fa-cog text-accent' :
+                                    a.type === 'user' ? 'fa-user text-secondary' :
+                                    a.type === 'alert' ? 'fa-bell text-warning' : 'fa-info text-gray-400'
+                                }"></i>
+                            </div>
+                            <div class="flex-1">
+                                <div class="flex items-center justify-between">
+                                    <p class="font-medium">${a.action}</p>
+                                    <span class="px-2 py-1 rounded text-xs ${
+                                        a.status === 'success' ? 'bg-success/20 text-success' :
+                                        a.status === 'failed' ? 'bg-danger/20 text-danger' :
+                                        'bg-warning/20 text-warning'
+                                    }">${a.status}</span>
+                                </div>
+                                <p class="text-sm text-gray-400 mt-1">
+                                    <i class="fas fa-user mr-1"></i>${a.user} •
+                                    <i class="fas fa-globe mr-1"></i>${a.ip} •
+                                    <i class="fas fa-clock mr-1"></i>${new Date(a.timestamp).toLocaleString()}
+                                </p>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    list.innerHTML = '<p class="text-gray-500 text-center py-8">No activity found</p>';
+                }
+            } catch (error) {
+                console.error('Error loading activity:', error);
+            }
+        }
+
+        // ==================== Documents ====================
+        async function loadDocuments() {
+            try {
+                const response = await fetch('/api/documents');
+                if (response.status === 403) {
+                    document.getElementById('documents-list').innerHTML = '<p class="text-gray-500 text-center py-8">Admin access required</p>';
+                    return;
+                }
+                const data = await response.json();
+
+                const list = document.getElementById('documents-list');
+                const documents = data.documents || {};
+                const docArray = Object.entries(documents);
+
+                if (docArray.length > 0) {
+                    list.innerHTML = docArray.map(([key, doc]) => `
+                        <div class="p-4 bg-gray-700/30 rounded-xl hover:bg-gray-700/50 transition-colors">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center space-x-4">
+                                    <div class="w-12 h-12 ${doc.original_name.endsWith('.pdf') ? 'bg-red-500/20' : 'bg-blue-500/20'} rounded-xl flex items-center justify-center">
+                                        <i class="fas ${doc.original_name.endsWith('.pdf') ? 'fa-file-pdf text-red-500' : 'fa-file-alt text-blue-500'} text-xl"></i>
+                                    </div>
+                                    <div>
+                                        <p class="font-medium">${doc.original_name}</p>
+                                        <p class="text-sm text-gray-400">
+                                            <span class="px-2 py-0.5 ${doc.resource_type === 'app' ? 'bg-accent/20 text-accent' : 'bg-warning/20 text-warning'} rounded text-xs mr-2">${doc.resource_type}</span>
+                                            ${doc.resource_name}
+                                        </p>
+                                        <p class="text-xs text-gray-500 mt-1">
+                                            <i class="fas fa-user mr-1"></i>${doc.uploaded_by} •
+                                            <i class="fas fa-clock mr-1"></i>${new Date(doc.uploaded_at).toLocaleString()} •
+                                            <i class="fas fa-file mr-1"></i>${(doc.size / 1024).toFixed(1)} KB
+                                        </p>
+                                    </div>
+                                </div>
+                                <div class="flex space-x-2">
+                                    <a href="/api/documents/${doc.resource_type}/${doc.resource_name}/download" class="px-3 py-1 bg-primary/20 text-primary rounded-lg hover:bg-primary/30 text-sm">
+                                        <i class="fas fa-download"></i>
+                                    </a>
+                                    <button onclick="deleteDocument('${doc.resource_type}', '${doc.resource_name}')" class="px-3 py-1 bg-danger/20 text-danger rounded-lg hover:bg-danger/30 text-sm">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            ${doc.description ? `<p class="text-sm text-gray-400 mt-2 pl-16">${doc.description}</p>` : ''}
+                        </div>
+                    `).join('');
+                } else {
+                    list.innerHTML = `
+                        <div class="text-center py-8">
+                            <i class="fas fa-file-upload text-4xl text-gray-600 mb-3"></i>
+                            <p class="text-gray-500">No documents uploaded yet</p>
+                            <p class="text-gray-600 text-sm mt-1">Upload log documentation for apps and servers</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error loading documents:', error);
+            }
+        }
+
+        async function loadResourceOptions() {
+            const type = document.getElementById('docResourceType').value;
+            const select = document.getElementById('docResourceName');
+
+            try {
+                let response;
+                if (type === 'app') {
+                    response = await fetch('/api/apps');
+                    const data = await response.json();
+                    select.innerHTML = '<option value="">Select application...</option>' +
+                        (data.apps || []).map(app => `<option value="${app.name}">${app.name}</option>`).join('');
+                } else {
+                    response = await fetch('/api/servers');
+                    const data = await response.json();
+                    select.innerHTML = '<option value="">Select server...</option>' +
+                        (data.servers || []).map(server => `<option value="${server.name}">${server.name}</option>`).join('');
+                }
+            } catch (error) {
+                console.error('Error loading resources:', error);
+            }
+        }
+
+        async function deleteDocument(resourceType, resourceName) {
+            if (!confirm(`Are you sure you want to delete this document?`)) return;
+
+            try {
+                const response = await fetch(`/api/documents/${resourceType}/${resourceName}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    loadDocuments();
+                } else {
+                    const data = await response.json();
+                    alert(data.detail || 'Error deleting document');
+                }
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        // Handle document upload form
+        document.addEventListener('DOMContentLoaded', () => {
+            const uploadForm = document.getElementById('uploadDocForm');
+            if (uploadForm) {
+                uploadForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+
+                    const resourceType = document.getElementById('docResourceType').value;
+                    const resourceName = document.getElementById('docResourceName').value;
+                    const file = document.getElementById('docFile').files[0];
+                    const description = document.getElementById('docDescription').value;
+
+                    if (!resourceName) {
+                        alert('Please select a resource');
+                        return;
+                    }
+
+                    if (!file) {
+                        alert('Please select a file');
+                        return;
+                    }
+
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    formData.append('description', description);
+
+                    try {
+                        const response = await fetch(`/api/documents/${resourceType}/${resourceName}`, {
+                            method: 'POST',
+                            body: formData
+                        });
+
+                        const data = await response.json();
+
+                        if (response.ok) {
+                            alert('Document uploaded successfully!');
+                            uploadForm.reset();
+                            loadDocuments();
+                        } else {
+                            alert(data.detail || 'Error uploading document');
+                        }
+                    } catch (error) {
+                        alert('Error: ' + error.message);
+                    }
+                });
+            }
+        });
+
+        // Real-time updates via SSE
+        function startRealtimeUpdates() {
+            const eventSource = new EventSource('/api/monitoring/stream');
+
+            eventSource.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (!data.error) {
+                        updateMonitoringSection(data);
+
+                        // Update stats
+                        const online = (data.websites?.filter(w => w.status === 'online').length || 0) +
+                                      (data.apps?.filter(a => a.status === 'online').length || 0) +
+                                      (data.servers?.filter(s => s.status === 'online').length || 0);
+                        const offline = (data.websites?.filter(w => w.status === 'offline').length || 0) +
+                                       (data.apps?.filter(a => a.status === 'offline').length || 0) +
+                                       (data.servers?.filter(s => s.status === 'offline').length || 0);
+
+                        document.getElementById('stat-online').textContent = online;
+                        document.getElementById('stat-offline').textContent = offline;
+                    }
+                } catch (e) {
+                    console.error('SSE parse error:', e);
+                }
+            };
+
+            eventSource.onerror = () => {
+                console.log('SSE connection error, reconnecting...');
+                eventSource.close();
+                setTimeout(startRealtimeUpdates, 5000);
+            };
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            loadConfigStatus();
+            loadMonitoring();
+            // startRealtimeUpdates(); // Uncomment for real-time updates
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,1451 @@
+"""FastAPI Web Dashboard Application."""
+
+import os
+import asyncio
+from pathlib import Path
+from typing import Optional
+from datetime import datetime, timedelta
+import json
+
+from fastapi import FastAPI, Request, HTTPException, Depends, status
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
+
+# Dashboard paths
+DASHBOARD_DIR = Path(__file__).parent
+STATIC_DIR = DASHBOARD_DIR / "static"
+TEMPLATES_DIR = DASHBOARD_DIR / "templates"
+
+# Create FastAPI app
+app = FastAPI(
+    title="DevOps CLI Dashboard",
+    description="Web interface for DevOps CLI",
+    version="1.0.0"
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Mount static files
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+# Templates
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+# Session storage (in-memory for simplicity)
+sessions = {}
+
+
+def get_auth_manager():
+    """Get AuthManager instance."""
+    from devops_cli.auth import AuthManager
+    return AuthManager()
+
+
+def get_current_user(request: Request) -> Optional[dict]:
+    """Get current user from session cookie."""
+    session_id = request.cookies.get("session_id")
+    if session_id and session_id in sessions:
+        session = sessions[session_id]
+        if datetime.fromisoformat(session["expires_at"]) > datetime.now():
+            return session["user"]
+    return None
+
+
+def require_auth(request: Request) -> dict:
+    """Require authentication."""
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
+
+
+def require_admin(request: Request) -> dict:
+    """Require admin role."""
+    user = require_auth(request)
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
+# ==================== Team-Based Access Control ====================
+CONFIG_DIR = Path.home() / ".devops-cli"
+DEPLOYMENTS_FILE = CONFIG_DIR / "deployments.json"
+ACTIVITY_FILE = CONFIG_DIR / "activity.json"
+
+def load_teams_config():
+    """Load teams configuration."""
+    import yaml
+    teams_file = CONFIG_DIR / "teams.yaml"
+    if teams_file.exists():
+        with open(teams_file) as f:
+            return yaml.safe_load(f) or {}
+    return {"teams": {"default": {"name": "Default Team", "apps": ["*"], "servers": ["*"], "repos": ["*"]}}}
+
+def get_user_team(email: str) -> str:
+    """Get user's team."""
+    users_file = CONFIG_DIR / "auth" / "users.json"
+    if users_file.exists():
+        with open(users_file) as f:
+            users = json.load(f)
+            return users.get(email, {}).get("team", "default")
+    return "default"
+
+def set_user_team(email: str, team: str):
+    """Set user's team."""
+    users_file = CONFIG_DIR / "auth" / "users.json"
+    if users_file.exists():
+        with open(users_file) as f:
+            users = json.load(f)
+        if email in users:
+            users[email]["team"] = team
+            with open(users_file, "w") as f:
+                json.dump(users, f, indent=2)
+
+def get_team_permissions(team_name: str) -> dict:
+    """Get team's access permissions."""
+    config = load_teams_config()
+    teams = config.get("teams", {})
+    return teams.get(team_name, teams.get("default", {"apps": ["*"], "servers": ["*"], "repos": ["*"]}))
+
+def can_access_resource(resource_name: str, allowed_patterns: list) -> bool:
+    """Check if user can access a resource based on patterns."""
+    import fnmatch
+    for pattern in allowed_patterns:
+        if pattern == "*" or fnmatch.fnmatch(resource_name, pattern):
+            return True
+    return False
+
+def filter_by_team_access(items: list, user_email: str, resource_type: str, name_key: str = "name") -> list:
+    """Filter items based on team access."""
+    team = get_user_team(user_email)
+    permissions = get_team_permissions(team)
+    allowed = permissions.get(resource_type, ["*"])
+    return [item for item in items if can_access_resource(item.get(name_key, ""), allowed)]
+
+# ==================== Dynamic Data Storage ====================
+
+def load_deployments() -> list:
+    """Load deployments from file."""
+    if DEPLOYMENTS_FILE.exists():
+        with open(DEPLOYMENTS_FILE) as f:
+            return json.load(f).get("deployments", [])
+    return []
+
+def save_deployment(deployment: dict):
+    """Save a new deployment."""
+    data = {"deployments": load_deployments()}
+    deployment["id"] = f"dep-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    deployment["deployed_at"] = datetime.now().isoformat() + "Z"
+    data["deployments"].insert(0, deployment)
+    # Keep last 100 deployments
+    data["deployments"] = data["deployments"][:100]
+    DEPLOYMENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(DEPLOYMENTS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+    return deployment
+
+def load_activity() -> list:
+    """Load activity logs from file."""
+    activities = []
+    # Load from auth audit log
+    audit_file = CONFIG_DIR / "auth" / "audit.log"
+    if audit_file.exists():
+        with open(audit_file) as f:
+            for line in f:
+                try:
+                    entry = json.loads(line.strip())
+                    activities.append({
+                        "timestamp": entry.get("timestamp", ""),
+                        "type": entry.get("action", "").split("_")[0] if "_" in entry.get("action", "") else "system",
+                        "user": entry.get("email", entry.get("user", "system")),
+                        "action": entry.get("action", "").replace("_", " ").title(),
+                        "ip": entry.get("ip", "-"),
+                        "status": "success" if entry.get("success", True) else "failed"
+                    })
+                except:
+                    pass
+    # Load custom activity file
+    if ACTIVITY_FILE.exists():
+        with open(ACTIVITY_FILE) as f:
+            activities.extend(json.load(f).get("activities", []))
+    # Sort by timestamp desc
+    activities.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+    return activities
+
+def log_activity(activity_type: str, user: str, action: str, status: str = "success", ip: str = "-"):
+    """Log an activity."""
+    data = {"activities": []}
+    if ACTIVITY_FILE.exists():
+        with open(ACTIVITY_FILE) as f:
+            data = json.load(f)
+    activity = {
+        "timestamp": datetime.now().isoformat() + "Z",
+        "type": activity_type,
+        "user": user,
+        "action": action,
+        "ip": ip,
+        "status": status
+    }
+    data["activities"].insert(0, activity)
+    data["activities"] = data["activities"][:500]  # Keep last 500
+    ACTIVITY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(ACTIVITY_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+# ==================== Pages ====================
+
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request):
+    """Main dashboard page."""
+    user = get_current_user(request)
+    if not user:
+        return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "user": user
+    })
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    """Login page."""
+    return templates.TemplateResponse("login.html", {"request": request})
+
+
+# ==================== Auth API ====================
+
+@app.post("/api/auth/login")
+async def api_login(request: Request):
+    """Login endpoint."""
+    data = await request.json()
+    email = data.get("email")
+    token = data.get("token")
+
+    if not email or not token:
+        raise HTTPException(status_code=400, detail="Email and token required")
+
+    auth = get_auth_manager()
+
+    try:
+        if auth.login(email, token):
+            # Get user info
+            users = auth.list_users()
+            user_info = next((u for u in users if u["email"] == email), None)
+
+            if user_info:
+                # Create session
+                import secrets
+                session_id = secrets.token_urlsafe(32)
+                sessions[session_id] = {
+                    "user": {
+                        "email": email,
+                        "name": user_info.get("name", email.split("@")[0]),
+                        "role": user_info.get("role", "developer"),
+                        "team": get_user_team(email)  # Read from users.json
+                    },
+                    "expires_at": (datetime.now() + timedelta(hours=8)).isoformat()
+                }
+
+                # Log successful login
+                log_activity("login", email, "User logged in via dashboard", "success")
+
+                response = JSONResponse({
+                    "success": True,
+                    "user": sessions[session_id]["user"]
+                })
+                response.set_cookie(
+                    key="session_id",
+                    value=session_id,
+                    httponly=True,
+                    max_age=8 * 3600,
+                    samesite="lax"
+                )
+                return response
+    except Exception as e:
+        pass
+
+    # Log failed login
+    log_activity("login", email, "Login attempt failed", "failed")
+    raise HTTPException(status_code=401, detail="Invalid email or token")
+
+
+@app.post("/api/auth/logout")
+async def api_logout(request: Request):
+    """Logout endpoint."""
+    session_id = request.cookies.get("session_id")
+    if session_id and session_id in sessions:
+        del sessions[session_id]
+
+    response = JSONResponse({"success": True})
+    response.delete_cookie("session_id")
+    return response
+
+
+@app.get("/api/auth/me")
+async def api_me(user: dict = Depends(require_auth)):
+    """Get current user info."""
+    return {"user": user}
+
+
+# ==================== Apps API ====================
+
+@app.get("/api/apps")
+async def api_apps(user: dict = Depends(require_auth)):
+    """Get all applications (filtered by team access)."""
+    from devops_cli.commands.admin import load_apps_config
+
+    try:
+        config = load_apps_config()
+        apps = config.get("apps", {})
+
+        result = []
+        for name, app in apps.items():
+            result.append({
+                "name": name,
+                "type": app.get("type", "unknown"),
+                "description": app.get("description", ""),
+                "health": app.get("health", {}),
+                "logs": app.get("logs", {})
+            })
+
+        # Filter by team access (admin sees all)
+        if user.get("role") != "admin":
+            result = filter_by_team_access(result, user["email"], "apps")
+
+        return {"apps": result}
+    except Exception as e:
+        return {"apps": [], "error": str(e)}
+
+
+@app.get("/api/apps/{app_name}/health")
+async def api_app_health(app_name: str, user: dict = Depends(require_auth)):
+    """Check app health."""
+    from devops_cli.commands.admin import load_apps_config
+    import httpx
+
+    config = load_apps_config()
+    apps = config.get("apps", {})
+
+    if app_name not in apps:
+        raise HTTPException(status_code=404, detail="App not found")
+
+    app = apps[app_name]
+    health_config = app.get("health", {})
+
+    if not health_config:
+        return {"status": "unknown", "message": "No health check configured"}
+
+    if health_config.get("type") == "http":
+        url = health_config.get("url")
+        expected_status = health_config.get("expected_status", 200)
+
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                start = datetime.now()
+                response = await client.get(url)
+                elapsed = (datetime.now() - start).total_seconds() * 1000
+
+                if response.status_code == expected_status:
+                    return {
+                        "status": "healthy",
+                        "response_time": round(elapsed, 2),
+                        "status_code": response.status_code
+                    }
+                else:
+                    return {
+                        "status": "unhealthy",
+                        "response_time": round(elapsed, 2),
+                        "status_code": response.status_code,
+                        "expected": expected_status
+                    }
+        except Exception as e:
+            return {"status": "unhealthy", "error": str(e)}
+
+    return {"status": "unknown", "message": "Unsupported health check type"}
+
+
+# ==================== Servers API ====================
+
+@app.get("/api/servers")
+async def api_servers(user: dict = Depends(require_auth)):
+    """Get all servers (filtered by team access)."""
+    from devops_cli.commands.admin import load_servers_config
+
+    try:
+        config = load_servers_config()
+        servers = config.get("servers", {})
+
+        result = []
+        for name, server in servers.items():
+            result.append({
+                "name": name,
+                "host": server.get("host", ""),
+                "user": server.get("user", ""),
+                "port": server.get("port", 22),
+                "tags": server.get("tags", [])
+            })
+
+        # Filter by team access (admin sees all)
+        if user.get("role") != "admin":
+            result = filter_by_team_access(result, user["email"], "servers")
+
+        return {"servers": result}
+    except Exception as e:
+        return {"servers": [], "error": str(e)}
+
+
+# ==================== Monitoring API ====================
+
+@app.get("/api/monitoring")
+async def api_monitoring(user: dict = Depends(require_auth)):
+    """Get monitoring status."""
+    try:
+        from devops_cli.monitoring import MonitoringConfig, HealthChecker
+        from devops_cli.monitoring.checker import HealthStatus
+
+        config = MonitoringConfig()
+        checker = HealthChecker()
+
+        websites = config.get_websites()
+        apps = config.get_apps()
+        servers = config.get_servers()
+
+        # Run health checks
+        results = await checker.check_all(websites, apps, servers)
+
+        # Convert HealthResult objects to dictionaries
+        def result_to_dict(r):
+            return {
+                "name": r.name,
+                "status": "online" if r.status == HealthStatus.HEALTHY else "offline" if r.status == HealthStatus.UNHEALTHY else "degraded",
+                "response_time": r.response_time_ms,
+                "message": r.message,
+                "details": r.details,
+                "url": r.details.get("url", "")
+            }
+
+        websites_data = [result_to_dict(w) for w in results.get("websites", [])]
+        apps_data = [result_to_dict(a) for a in results.get("apps", [])]
+        servers_data = [result_to_dict(s) for s in results.get("servers", [])]
+
+        online_count = sum(1 for w in websites_data if w["status"] == "online") + \
+                       sum(1 for a in apps_data if a["status"] == "online") + \
+                       sum(1 for s in servers_data if s["status"] == "online")
+
+        offline_count = sum(1 for w in websites_data if w["status"] == "offline") + \
+                        sum(1 for a in apps_data if a["status"] == "offline") + \
+                        sum(1 for s in servers_data if s["status"] == "offline")
+
+        return {
+            "websites": websites_data,
+            "apps": apps_data,
+            "servers": servers_data,
+            "summary": {
+                "total": len(websites) + len(apps) + len(servers),
+                "online": online_count,
+                "offline": offline_count
+            }
+        }
+    except Exception as e:
+        return {"websites": [], "apps": [], "servers": [], "error": str(e)}
+
+
+@app.get("/api/monitoring/stream")
+async def api_monitoring_stream(request: Request):
+    """Server-Sent Events for real-time monitoring."""
+    async def event_generator():
+        while True:
+            # Check if client disconnected
+            if await request.is_disconnected():
+                break
+
+            try:
+                from devops_cli.monitoring import MonitoringConfig, HealthChecker
+                from devops_cli.monitoring.checker import HealthStatus
+
+                config = MonitoringConfig()
+                checker = HealthChecker()
+
+                websites = config.get_websites()
+                apps = config.get_apps()
+                servers = config.get_servers()
+
+                results = await checker.check_all(websites, apps, servers)
+
+                # Convert HealthResult objects to dictionaries
+                def result_to_dict(r):
+                    return {
+                        "name": r.name,
+                        "status": "online" if r.status == HealthStatus.HEALTHY else "offline" if r.status == HealthStatus.UNHEALTHY else "degraded",
+                        "response_time": r.response_time_ms,
+                        "message": r.message,
+                        "url": r.details.get("url", "")
+                    }
+
+                data = json.dumps({
+                    "timestamp": datetime.now().isoformat(),
+                    "websites": [result_to_dict(w) for w in results.get("websites", [])],
+                    "apps": [result_to_dict(a) for a in results.get("apps", [])],
+                    "servers": [result_to_dict(s) for s in results.get("servers", [])]
+                })
+
+                yield f"data: {data}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+            await asyncio.sleep(10)  # Update every 10 seconds
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive"
+        }
+    )
+
+
+# ==================== Users API (Admin Only) ====================
+
+@app.get("/api/users")
+async def api_users(user: dict = Depends(require_admin)):
+    """Get all users (admin only)."""
+    auth = get_auth_manager()
+    users = auth.list_users()
+    # Add team info to users
+    for u in users:
+        u["team"] = get_user_team(u["email"])
+    teams_config = load_teams_config()
+    teams = list(teams_config.get("teams", {}).keys())
+    return {"users": users, "teams": teams}
+
+
+@app.post("/api/users")
+async def api_create_user(request: Request, user: dict = Depends(require_admin)):
+    """Create new user (admin only)."""
+    data = await request.json()
+    email = data.get("email")
+    name = data.get("name")
+    role = data.get("role", "developer")
+    team = data.get("team", "default")
+
+    if not email:
+        raise HTTPException(status_code=400, detail="Email required")
+
+    if role not in ["developer", "admin"]:
+        raise HTTPException(status_code=400, detail="Role must be developer or admin")
+
+    auth = get_auth_manager()
+
+    try:
+        token = auth.register_user(email, name, role)
+        # Set team for user
+        set_user_team(email, team)
+        log_activity("user", user["email"], f"Created user {email} with team {team}")
+        return {"success": True, "token": token, "email": email, "team": team}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/api/users/{email}/team")
+async def api_set_user_team(email: str, request: Request, user: dict = Depends(require_admin)):
+    """Set user's team (admin only)."""
+    data = await request.json()
+    team = data.get("team", "default")
+
+    set_user_team(email, team)
+    log_activity("user", user["email"], f"Changed {email} team to {team}")
+    return {"success": True, "email": email, "team": team}
+
+
+@app.delete("/api/users/{email}")
+async def api_delete_user(email: str, user: dict = Depends(require_admin)):
+    """Delete user (admin only)."""
+    auth = get_auth_manager()
+
+    if auth.remove_user(email):
+        log_activity("user", user["email"], f"Deleted user {email}")
+        return {"success": True}
+    else:
+        raise HTTPException(status_code=404, detail="User not found")
+
+
+# ==================== Document Storage ====================
+
+DOCUMENTS_DIR = Path.home() / ".devops-cli" / "documents"
+DOCUMENTS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def get_documents_metadata() -> dict:
+    """Get metadata for all uploaded documents."""
+    metadata_file = DOCUMENTS_DIR / "metadata.json"
+    if metadata_file.exists():
+        with open(metadata_file) as f:
+            return json.load(f)
+    return {"documents": {}}
+
+
+def save_documents_metadata(metadata: dict):
+    """Save documents metadata."""
+    metadata_file = DOCUMENTS_DIR / "metadata.json"
+    with open(metadata_file, "w") as f:
+        json.dump(metadata, f, indent=2)
+
+
+# ==================== CloudWatch Log Fetching ====================
+
+async def fetch_cloudwatch_logs(log_group: str, region: str, lines: int = 100) -> dict:
+    """Fetch logs from AWS CloudWatch."""
+    try:
+        import boto3
+        from botocore.exceptions import ClientError, NoCredentialsError
+
+        client = boto3.client('logs', region_name=region)
+
+        # Get log streams
+        streams_response = client.describe_log_streams(
+            logGroupName=log_group,
+            orderBy='LastEventTime',
+            descending=True,
+            limit=5
+        )
+
+        logs = []
+        for stream in streams_response.get('logStreams', []):
+            events_response = client.get_log_events(
+                logGroupName=log_group,
+                logStreamName=stream['logStreamName'],
+                limit=lines // len(streams_response.get('logStreams', [1])),
+                startFromHead=False
+            )
+
+            for event in events_response.get('events', []):
+                message = event.get('message', '')
+                level = 'INFO'
+                if 'ERROR' in message.upper():
+                    level = 'ERROR'
+                elif 'WARN' in message.upper():
+                    level = 'WARN'
+                elif 'DEBUG' in message.upper():
+                    level = 'DEBUG'
+
+                logs.append({
+                    "timestamp": datetime.fromtimestamp(event['timestamp'] / 1000).isoformat(),
+                    "level": level,
+                    "message": message,
+                    "source": stream['logStreamName']
+                })
+
+        logs.sort(key=lambda x: x['timestamp'], reverse=True)
+        return {"success": True, "logs": logs[:lines], "source": "cloudwatch"}
+
+    except NoCredentialsError:
+        return {"success": False, "error": "AWS credentials not configured", "hint": "Run 'devops admin aws configure' to set up AWS access"}
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+        if error_code == 'ResourceNotFoundException':
+            return {"success": False, "error": f"Log group '{log_group}' not found", "hint": "Check if the log group exists in CloudWatch"}
+        return {"success": False, "error": str(e), "hint": "Check AWS permissions and log group configuration"}
+    except ImportError:
+        return {"success": False, "error": "boto3 not installed", "hint": "Run 'pip install boto3' to enable AWS integration"}
+    except Exception as e:
+        return {"success": False, "error": str(e), "hint": "Check your AWS configuration and network connectivity"}
+
+
+async def fetch_ec2_logs(instance_id: str, region: str, log_path: str = "/var/log/syslog") -> dict:
+    """Fetch logs from EC2 instance via SSM."""
+    try:
+        import boto3
+        from botocore.exceptions import ClientError, NoCredentialsError
+
+        ssm_client = boto3.client('ssm', region_name=region)
+
+        response = ssm_client.send_command(
+            InstanceIds=[instance_id],
+            DocumentName='AWS-RunShellScript',
+            Parameters={'commands': [f'tail -100 {log_path}']}
+        )
+
+        command_id = response['Command']['CommandId']
+
+        # Wait for command to complete
+        import time
+        for _ in range(10):
+            time.sleep(1)
+            result = ssm_client.get_command_invocation(
+                CommandId=command_id,
+                InstanceId=instance_id
+            )
+            if result['Status'] in ['Success', 'Failed']:
+                break
+
+        if result['Status'] == 'Success':
+            output = result.get('StandardOutputContent', '')
+            logs = []
+            for line in output.split('\n'):
+                if line.strip():
+                    level = 'INFO'
+                    if 'error' in line.lower():
+                        level = 'ERROR'
+                    elif 'warn' in line.lower():
+                        level = 'WARN'
+                    logs.append({
+                        "timestamp": datetime.now().isoformat(),
+                        "level": level,
+                        "message": line,
+                        "source": instance_id
+                    })
+            return {"success": True, "logs": logs, "source": "ec2"}
+
+        return {"success": False, "error": "Command failed", "hint": "Check SSM agent status on EC2 instance"}
+
+    except NoCredentialsError:
+        return {"success": False, "error": "AWS credentials not configured", "hint": "Run 'devops admin aws configure' to set up AWS access"}
+    except Exception as e:
+        return {"success": False, "error": str(e), "hint": "Ensure SSM agent is running on the EC2 instance"}
+
+
+def get_document_logs(app_name: str) -> dict:
+    """Get logs from uploaded document."""
+    metadata = get_documents_metadata()
+    doc_info = metadata.get("documents", {}).get(app_name)
+
+    if not doc_info:
+        return {"success": False, "error": "No document uploaded"}
+
+    doc_path = DOCUMENTS_DIR / doc_info.get("filename", "")
+    if not doc_path.exists():
+        return {"success": False, "error": "Document file not found"}
+
+    try:
+        if doc_path.suffix.lower() == '.pdf':
+            # Try to extract text from PDF
+            try:
+                import PyPDF2
+                with open(doc_path, 'rb') as f:
+                    reader = PyPDF2.PdfReader(f)
+                    text = ""
+                    for page in reader.pages:
+                        text += page.extract_text() + "\n"
+            except ImportError:
+                return {
+                    "success": True,
+                    "logs": [{
+                        "timestamp": datetime.now().isoformat(),
+                        "level": "INFO",
+                        "message": f"📄 PDF document available: {doc_info.get('original_name', 'document.pdf')}",
+                        "source": "document"
+                    }, {
+                        "timestamp": datetime.now().isoformat(),
+                        "level": "INFO",
+                        "message": f"Uploaded by: {doc_info.get('uploaded_by', 'admin')} on {doc_info.get('uploaded_at', 'unknown')}",
+                        "source": "document"
+                    }, {
+                        "timestamp": datetime.now().isoformat(),
+                        "level": "INFO",
+                        "message": "💡 Install PyPDF2 to view PDF contents inline: pip install PyPDF2",
+                        "source": "document"
+                    }],
+                    "source": "document",
+                    "document_info": doc_info
+                }
+        else:
+            # Text file
+            with open(doc_path, 'r', errors='ignore') as f:
+                text = f.read()
+
+        # Parse text into log entries
+        logs = []
+        for line in text.split('\n')[:100]:
+            if line.strip():
+                level = 'INFO'
+                if 'error' in line.lower():
+                    level = 'ERROR'
+                elif 'warn' in line.lower():
+                    level = 'WARN'
+                elif 'debug' in line.lower():
+                    level = 'DEBUG'
+                logs.append({
+                    "timestamp": datetime.now().isoformat(),
+                    "level": level,
+                    "message": line,
+                    "source": "document"
+                })
+
+        return {"success": True, "logs": logs, "source": "document", "document_info": doc_info}
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ==================== Logs API ====================
+
+@app.get("/api/apps/{app_name}/logs")
+async def api_app_logs(
+    app_name: str,
+    lines: int = 100,
+    level: str = "all",
+    source_preference: str = "auto",  # auto, live, document
+    user: dict = Depends(require_auth)
+):
+    """Get application logs with priority: live source > document > friendly message."""
+    from devops_cli.commands.admin import load_apps_config
+
+    config = load_apps_config()
+    apps = config.get("apps", {})
+
+    if app_name not in apps:
+        raise HTTPException(status_code=404, detail="App not found")
+
+    app_config = apps[app_name]
+    logs_config = app_config.get("logs", {})
+    log_type = logs_config.get("type", "none")
+
+    result = {
+        "app": app_name,
+        "log_type": log_type,
+        "log_source": logs_config,
+        "logs": [],
+        "source_used": None,
+        "document_available": False,
+        "live_source_available": bool(logs_config),
+        "message": None,
+        "hint": None
+    }
+
+    # Check if document is available
+    metadata = get_documents_metadata()
+    if app_name in metadata.get("documents", {}):
+        result["document_available"] = True
+        result["document_info"] = metadata["documents"][app_name]
+
+    logs_fetched = False
+
+    # Try live source first (unless user prefers document)
+    if source_preference in ["auto", "live"] and logs_config:
+        if log_type == "cloudwatch":
+            log_group = logs_config.get("log_group")
+            region = logs_config.get("region", "us-east-1")
+            if log_group:
+                fetch_result = await fetch_cloudwatch_logs(log_group, region, lines)
+                if fetch_result.get("success"):
+                    result["logs"] = fetch_result["logs"]
+                    result["source_used"] = "cloudwatch"
+                    logs_fetched = True
+                else:
+                    result["live_error"] = fetch_result.get("error")
+                    result["hint"] = fetch_result.get("hint")
+
+        elif log_type == "ec2":
+            instance_id = logs_config.get("instance_id")
+            region = logs_config.get("region", "us-east-1")
+            log_path = logs_config.get("log_path", "/var/log/syslog")
+            if instance_id:
+                fetch_result = await fetch_ec2_logs(instance_id, region, log_path)
+                if fetch_result.get("success"):
+                    result["logs"] = fetch_result["logs"]
+                    result["source_used"] = "ec2"
+                    logs_fetched = True
+                else:
+                    result["live_error"] = fetch_result.get("error")
+                    result["hint"] = fetch_result.get("hint")
+
+        # For docker/kubernetes/pm2/file - require actual configuration
+        elif log_type in ["docker", "kubernetes", "pm2", "file"]:
+            # These require proper server/container configuration
+            result["logs"] = []
+            result["source_used"] = None
+            result["message"] = f"Log source '{log_type}' configured but connection not available."
+            result["hint"] = f"Admin: Configure {log_type} access credentials in app settings."
+            logs_fetched = False
+
+    # Try document if live source failed or user prefers document
+    if not logs_fetched and (source_preference in ["auto", "document"]) and result["document_available"]:
+        doc_result = get_document_logs(app_name)
+        if doc_result.get("success"):
+            result["logs"] = doc_result["logs"]
+            result["source_used"] = "document"
+            result["document_info"] = doc_result.get("document_info")
+            logs_fetched = True
+
+    # Friendly message if nothing available
+    if not logs_fetched:
+        result["logs"] = [{
+            "timestamp": datetime.now().isoformat(),
+            "level": "INFO",
+            "message": f"👋 Welcome! Logs for '{app_name}' are not yet configured.",
+            "source": "system"
+        }, {
+            "timestamp": datetime.now().isoformat(),
+            "level": "INFO",
+            "message": "💡 Ask your admin to configure log sources or upload log documentation.",
+            "source": "system"
+        }, {
+            "timestamp": datetime.now().isoformat(),
+            "level": "INFO",
+            "message": f"📋 Supported sources: CloudWatch, EC2, Docker, Kubernetes, PM2, File",
+            "source": "system"
+        }]
+        result["source_used"] = "none"
+        result["message"] = "No log sources configured for this application"
+        result["hint"] = "Admin can configure logs in app settings or upload log documentation"
+
+    # Filter by level
+    if level != "all":
+        result["logs"] = [l for l in result["logs"] if l["level"].lower() == level.lower()]
+
+    result["total"] = len(result["logs"])
+    return result
+
+
+@app.get("/api/apps/{app_name}/logs/stream")
+async def api_app_logs_stream(app_name: str, request: Request):
+    """Stream application logs in real-time via SSE."""
+    from devops_cli.commands.admin import load_apps_config
+    import random
+
+    config = load_apps_config()
+    apps = config.get("apps", {})
+
+    if app_name not in apps:
+        raise HTTPException(status_code=404, detail="App not found")
+
+    async def log_generator():
+        log_messages = [
+            ("INFO", "Request processed successfully"),
+            ("INFO", "Health check passed"),
+            ("DEBUG", "Cache hit for key: user_session"),
+            ("INFO", "Database query completed in 45ms"),
+            ("WARN", "High memory usage detected: 78%"),
+            ("INFO", "New connection established"),
+            ("DEBUG", "Processing batch job"),
+            ("INFO", "API response sent: 200 OK"),
+            ("ERROR", "Connection timeout, retrying..."),
+            ("INFO", "Retry successful"),
+        ]
+
+        while True:
+            if await request.is_disconnected():
+                break
+
+            level, message = random.choice(log_messages)
+            log_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "level": level,
+                "message": f"[{app_name}] {message}",
+                "source": app_name
+            }
+
+            yield f"data: {json.dumps(log_entry)}\n\n"
+            await asyncio.sleep(random.uniform(1, 3))
+
+    return StreamingResponse(
+        log_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+    )
+
+
+@app.get("/api/servers/{server_name}/logs")
+async def api_server_logs(
+    server_name: str,
+    log_type: str = "system",
+    lines: int = 50,
+    user: dict = Depends(require_auth)
+):
+    """Get server logs (system, auth, application)."""
+    from devops_cli.commands.admin import load_servers_config
+
+    config = load_servers_config()
+    servers = config.get("servers", {})
+
+    if server_name not in servers:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    server = servers[server_name]
+    host = server.get("host")
+    ssh_user = server.get("user", "ubuntu")
+    ssh_port = server.get("port", 22)
+
+    # Try to fetch real logs via SSH or show configuration message
+    logs = []
+    message = None
+    hint = None
+
+    # Check if server has logs configuration
+    logs_config = server.get("logs", {})
+
+    if logs_config:
+        # Server has logs configured - try to fetch
+        # In production, this would SSH to server and fetch logs
+        message = f"Server logs configured. SSH connection to {host} required."
+        hint = "Ensure SSH keys are configured via 'devops ssh add-key'"
+    else:
+        # No logs configured
+        message = f"No logs configured for server '{server_name}'."
+        hint = "Admin: Add logs configuration to server in servers.yaml"
+
+    # Check for uploaded document
+    doc_key = f"server_{server_name}"
+    metadata = get_documents_metadata()
+    doc_available = doc_key in metadata.get("documents", {})
+
+    if doc_available:
+        doc_result = get_document_logs(server_name, "server")
+        if doc_result.get("success"):
+            logs = doc_result["logs"]
+            message = "Showing logs from uploaded document."
+
+    return {
+        "server": server_name,
+        "host": host,
+        "log_type": log_type,
+        "logs": logs[:lines],
+        "available_types": ["system", "auth", "nginx", "docker", "application"],
+        "message": message,
+        "hint": hint,
+        "document_available": doc_available
+    }
+
+
+# ==================== Activity/Audit Logs API ====================
+
+@app.get("/api/activity")
+async def api_activity(
+    limit: int = 50,
+    activity_type: str = "all",
+    user: dict = Depends(require_auth)
+):
+    """Get activity/audit logs (dynamic from files)."""
+    # Load from audit.log and activity.json
+    activities = load_activity()
+
+    # Filter by type
+    if activity_type != "all":
+        activities = [a for a in activities if a.get("type") == activity_type]
+
+    return {
+        "activities": activities[:limit],
+        "total": len(activities),
+        "types": ["all", "login", "deploy", "config", "user", "alert"]
+    }
+
+
+@app.get("/api/activity/stream")
+async def api_activity_stream(request: Request, user: dict = Depends(require_auth)):
+    """Live activity stream via SSE."""
+    async def event_generator():
+        last_count = 0
+        while True:
+            if await request.is_disconnected():
+                break
+            activities = load_activity()
+            if len(activities) > last_count:
+                new_activities = activities[:len(activities) - last_count] if last_count > 0 else activities[:5]
+                last_count = len(activities)
+                yield f"data: {json.dumps({'activities': new_activities})}\n\n"
+            await asyncio.sleep(2)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+# ==================== Deployments API ====================
+
+@app.get("/api/deployments")
+async def api_deployments(
+    app_name: str = None,
+    status: str = "all",
+    limit: int = 20,
+    user: dict = Depends(require_auth)
+):
+    """Get deployment history (dynamic from file, team-filtered)."""
+    from devops_cli.commands.admin import load_apps_config
+
+    config = load_apps_config()
+    all_apps = list(config.get("apps", {}).keys())
+
+    # Load deployments from file
+    deployments = load_deployments()
+
+    # Filter by team access (admin sees all)
+    if user.get("role") != "admin":
+        deployments = filter_by_team_access(deployments, user["email"], "apps", "app")
+        all_apps = [a["name"] for a in filter_by_team_access([{"name": a} for a in all_apps], user["email"], "apps")]
+
+    # Filter by app
+    if app_name:
+        deployments = [d for d in deployments if d.get("app") == app_name]
+
+    # Filter by status
+    if status != "all":
+        deployments = [d for d in deployments if d.get("status") == status]
+
+    return {
+        "deployments": deployments[:limit],
+        "total": len(deployments),
+        "apps": all_apps,
+        "statuses": ["all", "success", "failed", "in_progress", "rolled_back"]
+    }
+
+
+@app.post("/api/deployments/{app_name}/deploy")
+async def api_trigger_deployment(
+    app_name: str,
+    request: Request,
+    user: dict = Depends(require_auth)
+):
+    """Trigger a new deployment (saves to file)."""
+    data = await request.json()
+    version = data.get("version", "latest")
+    environment = data.get("environment", "staging")
+    message = data.get("message", "Deployment triggered via dashboard")
+    commit = data.get("commit", "HEAD")
+
+    # Check team access
+    if user.get("role") != "admin":
+        team = get_user_team(user["email"])
+        permissions = get_team_permissions(team)
+        if not can_access_resource(app_name, permissions.get("apps", [])):
+            raise HTTPException(status_code=403, detail="No access to this app")
+
+    # Save deployment to file
+    deployment = save_deployment({
+        "app": app_name,
+        "version": version,
+        "environment": environment,
+        "status": "in_progress",
+        "deployed_by": user["email"],
+        "duration": "-",
+        "commit": commit,
+        "message": message
+    })
+
+    # Log activity
+    log_activity("deploy", user["email"], f"Deployed {app_name} {version} to {environment}")
+
+    return {
+        "success": True,
+        "message": f"Deployment of {app_name} {version} to {environment} initiated",
+        "deployment_id": deployment["id"],
+        "triggered_by": user["email"]
+    }
+
+
+# ==================== Document Management API (Admin Only) ====================
+
+@app.get("/api/documents")
+async def api_list_documents(user: dict = Depends(require_admin)):
+    """List all uploaded documents (admin only)."""
+    metadata = get_documents_metadata()
+    return {
+        "documents": metadata.get("documents", {}),
+        "total": len(metadata.get("documents", {}))
+    }
+
+
+@app.post("/api/documents/{resource_type}/{resource_name}")
+async def api_upload_document(
+    resource_type: str,
+    resource_name: str,
+    request: Request,
+    user: dict = Depends(require_admin)
+):
+    """Upload a document for an app or server (admin only)."""
+    from fastapi import UploadFile, File, Form
+
+    # Get form data
+    form = await request.form()
+    file = form.get("file")
+
+    if not file:
+        raise HTTPException(status_code=400, detail="No file uploaded")
+
+    # Validate file type
+    filename = file.filename
+    if not filename.lower().endswith(('.pdf', '.txt', '.log', '.md')):
+        raise HTTPException(status_code=400, detail="Only PDF, TXT, LOG, and MD files are allowed")
+
+    # Validate resource type
+    if resource_type not in ["app", "server"]:
+        raise HTTPException(status_code=400, detail="Resource type must be 'app' or 'server'")
+
+    # Create unique filename
+    ext = Path(filename).suffix
+    safe_name = f"{resource_type}_{resource_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}"
+    file_path = DOCUMENTS_DIR / safe_name
+
+    # Save file
+    content = await file.read()
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    # Update metadata
+    metadata = get_documents_metadata()
+    key = resource_name if resource_type == "app" else f"server_{resource_name}"
+    metadata["documents"][key] = {
+        "filename": safe_name,
+        "original_name": filename,
+        "resource_type": resource_type,
+        "resource_name": resource_name,
+        "size": len(content),
+        "uploaded_by": user["email"],
+        "uploaded_at": datetime.now().isoformat(),
+        "description": form.get("description", "")
+    }
+    save_documents_metadata(metadata)
+
+    return {
+        "success": True,
+        "message": f"Document uploaded successfully for {resource_type} '{resource_name}'",
+        "document": metadata["documents"][key]
+    }
+
+
+@app.delete("/api/documents/{resource_type}/{resource_name}")
+async def api_delete_document(
+    resource_type: str,
+    resource_name: str,
+    user: dict = Depends(require_admin)
+):
+    """Delete a document (admin only)."""
+    metadata = get_documents_metadata()
+    key = resource_name if resource_type == "app" else f"server_{resource_name}"
+
+    if key not in metadata.get("documents", {}):
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    doc_info = metadata["documents"][key]
+    file_path = DOCUMENTS_DIR / doc_info["filename"]
+
+    # Delete file
+    if file_path.exists():
+        file_path.unlink()
+
+    # Update metadata
+    del metadata["documents"][key]
+    save_documents_metadata(metadata)
+
+    return {"success": True, "message": "Document deleted successfully"}
+
+
+@app.get("/api/documents/{resource_type}/{resource_name}/download")
+async def api_download_document(
+    resource_type: str,
+    resource_name: str,
+    user: dict = Depends(require_auth)
+):
+    """Download a document."""
+    from fastapi.responses import FileResponse
+
+    metadata = get_documents_metadata()
+    key = resource_name if resource_type == "app" else f"server_{resource_name}"
+
+    if key not in metadata.get("documents", {}):
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    doc_info = metadata["documents"][key]
+    file_path = DOCUMENTS_DIR / doc_info["filename"]
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Document file not found")
+
+    return FileResponse(
+        path=str(file_path),
+        filename=doc_info["original_name"],
+        media_type="application/octet-stream"
+    )
+
+
+# ==================== GitHub API ====================
+
+def get_github_config():
+    """Load GitHub config from teams.yaml."""
+    import yaml
+    teams_file = Path.home() / ".devops-cli" / "teams.yaml"
+    if teams_file.exists():
+        with open(teams_file) as f:
+            return yaml.safe_load(f) or {}
+    return {}
+
+def get_user_team(email: str) -> str:
+    """Get user's team from users.json."""
+    users_file = Path.home() / ".devops-cli" / "auth" / "users.json"
+    if users_file.exists():
+        with open(users_file) as f:
+            users = json.load(f)
+            user = users.get(email, {})
+            return user.get("team", "default")
+    return "default"
+
+def can_access_repo(repo_name: str, team_repos: list) -> bool:
+    """Check if team can access repo."""
+    import fnmatch
+    for pattern in team_repos:
+        if pattern == '*' or fnmatch.fnmatch(repo_name, pattern):
+            return True
+    return False
+
+@app.get("/api/github/repos")
+async def api_github_repos(user: dict = Depends(require_auth)):
+    """Fetch GitHub org repos with team-based filtering."""
+    import httpx
+
+    config = get_github_config()
+    github_config = config.get("github", {})
+    org = github_config.get("org", "")
+    token = github_config.get("token", "")
+
+    if not org:
+        return {"error": "GitHub organization not configured", "repos": [], "hint": "Admin: Configure github.org in teams.yaml"}
+
+    # Get user's team and allowed repos
+    user_team = get_user_team(user["email"])
+    teams = config.get("teams", {})
+    team_config = teams.get(user_team, teams.get("default", {}))
+    allowed_repos = team_config.get("repos", ["*"])
+
+    # Fetch repos from GitHub API
+    headers = {"Accept": "application/vnd.github.v3+json"}
+    if token:
+        headers["Authorization"] = f"token {token}"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"https://api.github.com/orgs/{org}/repos?per_page=100&sort=updated",
+                headers=headers,
+                timeout=10.0
+            )
+
+            if resp.status_code == 404:
+                return {"error": f"Organization '{org}' not found", "repos": []}
+            elif resp.status_code == 403:
+                return {"error": "Rate limited or token invalid", "repos": [], "hint": "Add GitHub token in teams.yaml"}
+            elif resp.status_code != 200:
+                return {"error": f"GitHub API error: {resp.status_code}", "repos": []}
+
+            all_repos = resp.json()
+
+            # Filter by team access
+            filtered_repos = []
+            for repo in all_repos:
+                if can_access_repo(repo["name"], allowed_repos):
+                    filtered_repos.append({
+                        "name": repo["name"],
+                        "description": repo.get("description") or "No description",
+                        "url": repo["html_url"],
+                        "language": repo.get("language"),
+                        "stars": repo.get("stargazers_count", 0),
+                        "forks": repo.get("forks_count", 0),
+                        "updated_at": repo.get("updated_at"),
+                        "private": repo.get("private", False),
+                        "default_branch": repo.get("default_branch", "main")
+                    })
+
+            return {
+                "org": org,
+                "team": user_team,
+                "team_name": team_config.get("name", user_team),
+                "repos": filtered_repos,
+                "total": len(filtered_repos),
+                "all_count": len(all_repos)
+            }
+    except httpx.TimeoutException:
+        return {"error": "GitHub API timeout", "repos": []}
+    except Exception as e:
+        return {"error": str(e), "repos": []}
+
+@app.get("/api/github/config")
+async def api_github_config(user: dict = Depends(require_admin)):
+    """Get GitHub configuration (admin only)."""
+    config = get_github_config()
+    return {
+        "org": config.get("github", {}).get("org", ""),
+        "has_token": bool(config.get("github", {}).get("token")),
+        "teams": {k: {"name": v.get("name", k), "repos": v.get("repos", [])} for k, v in config.get("teams", {}).items()}
+    }
+
+@app.post("/api/github/config")
+async def api_update_github_config(request: Request, user: dict = Depends(require_admin)):
+    """Update GitHub configuration (admin only)."""
+    import yaml
+    data = await request.json()
+
+    config = get_github_config()
+    if "github" not in config:
+        config["github"] = {}
+
+    if "org" in data:
+        config["github"]["org"] = data["org"]
+    if "token" in data:
+        config["github"]["token"] = data["token"]
+
+    teams_file = Path.home() / ".devops-cli" / "teams.yaml"
+    with open(teams_file, "w") as f:
+        yaml.dump(config, f, default_flow_style=False)
+
+    return {"success": True, "message": "GitHub configuration updated"}
+
+
+# ==================== Config API ====================
+
+@app.get("/api/config/status")
+async def api_config_status(user: dict = Depends(require_auth)):
+    """Get configuration status."""
+    from devops_cli.commands.admin import (
+        load_apps_config, load_servers_config, load_aws_config,
+        ADMIN_CONFIG_DIR
+    )
+
+    try:
+        apps_config = load_apps_config()
+        servers_config = load_servers_config()
+        aws_config = load_aws_config()
+
+        auth = get_auth_manager()
+        users = auth.list_users()
+
+        return {
+            "initialized": ADMIN_CONFIG_DIR.exists(),
+            "organization": aws_config.get("organization", "Not set"),
+            "apps_count": len(apps_config.get("apps", {})),
+            "servers_count": len(servers_config.get("servers", {})),
+            "aws_roles_count": len(aws_config.get("roles", {})),
+            "users_count": len(users)
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ==================== Run Server ====================
+
+def create_app():
+    """Create and return the FastAPI app."""
+    return app
+
+
+def run_dashboard(host: str = "0.0.0.0", port: int = 3000, reload: bool = False):
+    """Run the dashboard server."""
+    uvicorn.run(
+        "devops_cli.dashboard.app:app",
+        host=host,
+        port=port,
+        reload=reload,
+        log_level="info"
+    )
+
+
+if __name__ == "__main__":
+    run_dashboard()

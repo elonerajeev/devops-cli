@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-900">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - DevOps CLI Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#6366f1',
+                        secondary: '#8b5cf6',
+                        accent: '#06b6d4',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #1e1b4b 100%);
+        }
+        .glow {
+            box-shadow: 0 0 40px rgba(99, 102, 241, 0.3);
+        }
+        .input-glow:focus {
+            box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
+        }
+    </style>
+</head>
+<body class="h-full gradient-bg">
+    <div class="min-h-full flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+        <!-- Logo and Title -->
+        <div class="sm:mx-auto sm:w-full sm:max-w-md">
+            <div class="flex justify-center">
+                <div class="w-20 h-20 bg-gradient-to-br from-primary to-secondary rounded-2xl flex items-center justify-center glow">
+                    <i class="fas fa-terminal text-white text-3xl"></i>
+                </div>
+            </div>
+            <h2 class="mt-6 text-center text-3xl font-bold tracking-tight text-white">
+                DevOps CLI
+            </h2>
+            <p class="mt-2 text-center text-sm text-gray-400">
+                Sign in to access your dashboard
+            </p>
+        </div>
+
+        <!-- Login Form -->
+        <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+            <div class="bg-gray-800/50 backdrop-blur-lg py-8 px-4 shadow-2xl sm:rounded-2xl sm:px-10 border border-gray-700/50">
+                <form id="loginForm" class="space-y-6">
+                    <!-- Email Field -->
+                    <div>
+                        <label for="email" class="block text-sm font-medium text-gray-300">
+                            <i class="fas fa-envelope mr-2 text-primary"></i>Email address
+                        </label>
+                        <div class="mt-2">
+                            <input id="email" name="email" type="email" autocomplete="email" required
+                                class="block w-full rounded-xl border-0 bg-gray-700/50 py-3 px-4 text-white shadow-sm ring-1 ring-inset ring-gray-600 placeholder:text-gray-500 focus:ring-2 focus:ring-inset focus:ring-primary input-glow transition-all duration-300"
+                                placeholder="you@company.com">
+                        </div>
+                    </div>
+
+                    <!-- Token Field -->
+                    <div>
+                        <label for="token" class="block text-sm font-medium text-gray-300">
+                            <i class="fas fa-key mr-2 text-secondary"></i>Access Token
+                        </label>
+                        <div class="mt-2 relative">
+                            <input id="token" name="token" type="password" required
+                                class="block w-full rounded-xl border-0 bg-gray-700/50 py-3 px-4 pr-12 text-white shadow-sm ring-1 ring-inset ring-gray-600 placeholder:text-gray-500 focus:ring-2 focus:ring-inset focus:ring-primary input-glow transition-all duration-300"
+                                placeholder="DVC-xxxxxxxxxxxxxxxx">
+                            <button type="button" onclick="togglePassword()" class="absolute inset-y-0 right-0 pr-4 flex items-center">
+                                <i id="toggleIcon" class="fas fa-eye text-gray-500 hover:text-gray-300 transition-colors"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Error Message -->
+                    <div id="errorMessage" class="hidden rounded-xl bg-red-500/10 border border-red-500/50 p-4">
+                        <div class="flex">
+                            <i class="fas fa-exclamation-circle text-red-400 mr-3 mt-0.5"></i>
+                            <p id="errorText" class="text-sm text-red-400"></p>
+                        </div>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <div>
+                        <button type="submit" id="submitBtn"
+                            class="flex w-full justify-center items-center rounded-xl bg-gradient-to-r from-primary to-secondary px-4 py-3 text-sm font-semibold text-white shadow-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-gray-900 transition-all duration-300 glow">
+                            <span id="btnText">Sign in</span>
+                            <i id="btnLoader" class="fas fa-spinner fa-spin ml-2 hidden"></i>
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Help Text -->
+                <div class="mt-6 text-center">
+                    <p class="text-sm text-gray-500">
+                        Don't have a token? Contact your admin.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="mt-8 text-center">
+            <p class="text-xs text-gray-600">
+                <i class="fas fa-shield-alt mr-1"></i>
+                Secured with token-based authentication
+            </p>
+        </div>
+    </div>
+
+    <script>
+        function togglePassword() {
+            const tokenInput = document.getElementById('token');
+            const toggleIcon = document.getElementById('toggleIcon');
+
+            if (tokenInput.type === 'password') {
+                tokenInput.type = 'text';
+                toggleIcon.classList.remove('fa-eye');
+                toggleIcon.classList.add('fa-eye-slash');
+            } else {
+                tokenInput.type = 'password';
+                toggleIcon.classList.remove('fa-eye-slash');
+                toggleIcon.classList.add('fa-eye');
+            }
+        }
+
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const email = document.getElementById('email').value;
+            const token = document.getElementById('token').value;
+            const submitBtn = document.getElementById('submitBtn');
+            const btnText = document.getElementById('btnText');
+            const btnLoader = document.getElementById('btnLoader');
+            const errorMessage = document.getElementById('errorMessage');
+            const errorText = document.getElementById('errorText');
+
+            // Show loading
+            submitBtn.disabled = true;
+            btnText.textContent = 'Signing in...';
+            btnLoader.classList.remove('hidden');
+            errorMessage.classList.add('hidden');
+
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email, token }),
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    // Redirect to dashboard
+                    window.location.href = '/';
+                } else {
+                    throw new Error(data.detail || 'Invalid email or token');
+                }
+            } catch (error) {
+                errorText.textContent = error.message;
+                errorMessage.classList.remove('hidden');
+            } finally {
+                submitBtn.disabled = false;
+                btnText.textContent = 'Sign in';
+                btnLoader.classList.add('hidden');
+            }
+        });
+    </script>
+</body>
+</html>

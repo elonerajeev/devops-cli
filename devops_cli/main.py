@@ -7,7 +7,7 @@ from rich.table import Table
 from rich import box
 
 from devops_cli import __version__
-from devops_cli.commands import git, health, logs, deploy, ssh, secrets, aws_logs, admin, app as app_cmd, auth, monitor
+from devops_cli.commands import git, health, logs, deploy, ssh, secrets, aws_logs, admin, app as app_cmd, auth, monitor, dashboard
 from devops_cli.config.settings import init_config, load_config
 from devops_cli.utils.output import success, info, print_panel
 from devops_cli.utils.config_validator import ConfigValidator, print_not_configured
@@ -33,6 +33,7 @@ app.add_typer(admin.app, name="admin", help="Admin: Configure apps, servers, AWS
 app.add_typer(app_cmd.app, name="app", help="Applications: View logs, health for configured apps")
 app.add_typer(auth.app, name="auth", help="Authentication: Login/logout for CLI access")
 app.add_typer(monitor.app, name="monitor", help="Real-time monitoring dashboard for websites, apps, servers")
+app.add_typer(dashboard.app, name="dashboard", help="Web Dashboard - Beautiful browser-based monitoring UI")
 
 
 @app.command()
@@ -141,6 +142,7 @@ def status():
     console.print("  [cyan]devops app list[/cyan]       - List available applications")
     console.print("  [cyan]devops app logs <app>[/cyan] - View application logs")
     console.print("  [cyan]devops monitor[/cyan]        - Real-time monitoring dashboard")
+    console.print("  [cyan]devops dashboard[/cyan]      - Web UI dashboard (browser)")
     console.print("  [cyan]devops --help[/cyan]         - See all commands")
 
 

@@ -8,6 +8,8 @@ This module provides commands for cloud engineers/DevOps to:
 - Set up log sources and health checks
 
 Developers use the configured resources without needing to know the underlying details.
+
+SECURITY: All admin commands (except init) require admin role authentication.
 """
 
 import os
@@ -23,6 +25,8 @@ import yaml
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
+from rich.panel import Panel
+from rich import box
 
 from devops_cli.config.settings import load_config, save_config, get_config_path
 from devops_cli.config.repos import (
@@ -41,6 +45,86 @@ from devops_cli.utils.output import (
 
 app = typer.Typer(help="Admin commands for Cloud Engineers to configure the CLI")
 console = Console()
+
+# Commands that don't require admin auth (first-time setup)
+INIT_COMMANDS = ["init"]
+
+
+def check_admin_access(ctx: typer.Context):
+    """Check if user has admin access. Called before admin commands."""
+    # Get the command being run
+    command_name = ctx.invoked_subcommand
+
+    # Skip auth check for init command (first-time setup)
+    if command_name in INIT_COMMANDS:
+        return
+
+    # Check if CLI is initialized
+    if not ADMIN_CONFIG_DIR.exists():
+        console.print()
+        console.print(Panel(
+            "[yellow]CLI not initialized yet.[/yellow]\n\n"
+            "Run [cyan]devops admin init[/cyan] first to set up the CLI.",
+            title="[bold]Setup Required[/bold]",
+            border_style="yellow",
+            box=box.ROUNDED
+        ))
+        raise typer.Exit(0)
+
+    # Check if any users exist (if not, allow first admin setup)
+    from devops_cli.auth import AuthManager
+    auth = AuthManager()
+    users = auth.list_users()
+
+    if not users:
+        # No users yet - this is first-time setup, allow user-add only
+        if command_name == "user-add":
+            return
+        console.print()
+        console.print(Panel(
+            "[yellow]No admin users registered yet.[/yellow]\n\n"
+            "Create the first admin user:\n"
+            "  [cyan]devops admin user-add --email admin@company.com --role admin[/cyan]",
+            title="[bold]First Admin Setup[/bold]",
+            border_style="yellow",
+            box=box.ROUNDED
+        ))
+        raise typer.Exit(0)
+
+    # Check if current user is authenticated
+    session = auth.get_current_session()
+    if not session:
+        console.print()
+        console.print(Panel(
+            "[red]Authentication required.[/red]\n\n"
+            "Admin commands require you to be logged in.\n\n"
+            "Run: [cyan]devops auth login[/cyan]",
+            title="[bold]🔐 Login Required[/bold]",
+            border_style="red",
+            box=box.ROUNDED
+        ))
+        raise typer.Exit(1)
+
+    # Check if user has admin role
+    if session.get("role") != "admin":
+        console.print()
+        console.print(Panel(
+            f"[red]Access denied.[/red]\n\n"
+            f"You are logged in as: [cyan]{session.get('email')}[/cyan] (role: {session.get('role')})\n\n"
+            "Admin commands require [bold]admin[/bold] role.\n"
+            "Contact your administrator for access.",
+            title="[bold]🚫 Admin Access Required[/bold]",
+            border_style="red",
+            box=box.ROUNDED
+        ))
+        raise typer.Exit(1)
+
+
+@app.callback()
+def admin_callback(ctx: typer.Context):
+    """Verify admin access before running admin commands."""
+    check_admin_access(ctx)
+
 
 # Admin config paths
 ADMIN_CONFIG_DIR = Path.home() / ".devops-cli"
