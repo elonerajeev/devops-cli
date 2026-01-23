@@ -33,17 +33,15 @@ def get_website_config_for_check(name: str) -> Optional[WebsiteConfig]:
     website_dict = get_website_config(name)
     if not website_dict:
         return None
-    
-    # Extract known fields for WebsiteConfig
+
+    # Extract only fields that WebsiteConfig accepts
     return WebsiteConfig(
         name=website_dict.get("name", name),
         url=website_dict.get("url", ""),
         expected_status=website_dict.get("expected_status", 200),
         timeout=website_dict.get("timeout", 10),
         method=website_dict.get("method", "GET"),
-        headers=website_dict.get("headers", {}),
-        enabled=website_dict.get("enabled", True),
-        created_at=website_dict.get("added_at", datetime.now().isoformat()) # Use added_at from admin, or default
+        created_at=website_dict.get("added_at", datetime.now().isoformat())
     )
 
 

@@ -15,6 +15,8 @@ class WebsiteConfig:
     expected_status: int = 200
     timeout: int = 10
     method: str = "GET"
+    headers: dict = field(default_factory=dict)
+    enabled: bool = True
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
     def as_dict(self):
