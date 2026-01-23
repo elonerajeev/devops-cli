@@ -37,6 +37,7 @@ from devops_cli.utils.output import (
 
 app = typer.Typer(help="Application commands - View logs, health, and info for configured apps")
 console = Console()
+auth = AuthManager()
 
 
 # Try to import boto3
@@ -266,7 +267,6 @@ def app_info(
 
 def check_auth():
     """Check if user is authenticated, show message if not."""
-    auth = AuthManager()
     if not auth.is_authenticated():
         error("Authentication required")
         info("Run: devops auth login")
