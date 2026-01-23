@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Literal
 from enum import Enum
+from contextlib import asynccontextmanager
 
 try:
     import aiohttp
@@ -67,12 +68,64 @@ class HealthResult:
         return colors.get(self.status, "white")
 
 
+# =============================================================================
+# Connection Pool Manager (Singleton pattern for reuse)
+# =============================================================================
+class HTTPClientPool:
+    """
+    Manages a shared httpx.AsyncClient with connection pooling.
+
+    This improves performance by reusing connections instead of creating
+    a new client for each request.
+    """
+    _instance: Optional["HTTPClientPool"] = None
+    _client: Optional[httpx.AsyncClient] = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    async def get_client(self) -> httpx.AsyncClient:
+        """Get or create the shared HTTP client."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(30.0, connect=10.0),
+                follow_redirects=True,
+                limits=httpx.Limits(
+                    max_keepalive_connections=20,
+                    max_connections=100,
+                    keepalive_expiry=30.0
+                )
+            )
+        return self._client
+
+    async def close(self):
+        """Close the HTTP client."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
+
+    @asynccontextmanager
+    async def session(self):
+        """Context manager for using the client."""
+        client = await self.get_client()
+        try:
+            yield client
+        except Exception:
+            raise
+
+# Global pool instance
+_http_pool = HTTPClientPool()
+
+
 class HealthChecker:
     """Performs health checks on websites, apps, and servers."""
 
     def __init__(self):
         self._history: dict[str, list[HealthResult]] = {}
         self._failure_counts: dict[str, int] = {}
+        self._http_pool = _http_pool  # Use shared pool
 
     def _record_result(self, result: HealthResult):
         """Record result for history tracking."""
@@ -102,15 +155,17 @@ class HealthChecker:
             result.uptime_percent = (healthy_count / len(history)) * 100
 
     async def check_website(self, website: WebsiteConfig) -> HealthResult:
-        """Check website health via HTTP request."""
+        """Check website health via HTTP request using connection pool."""
         start_time = time.time()
 
         try:
-            async with httpx.AsyncClient(timeout=website.timeout, follow_redirects=True) as client:
+            # Use shared connection pool for better performance
+            async with self._http_pool.session() as client:
                 response = await client.request(
                     method=website.method,
                     url=website.url,
-                    headers=website.headers or {}
+                    headers=website.headers or {},
+                    timeout=httpx.Timeout(website.timeout)
                 )
 
                 response_time = (time.time() - start_time) * 1000

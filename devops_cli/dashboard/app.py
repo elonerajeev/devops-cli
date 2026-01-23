@@ -3,9 +3,11 @@
 import os
 import asyncio
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime, timedelta
+from collections import defaultdict
 import json
+import time
 
 from fastapi import FastAPI, Request, HTTPException, Depends, status, File, UploadFile, Form
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -14,13 +16,126 @@ from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from pydantic import ValidationError # Import ValidationError
+from pydantic import ValidationError
 from devops_cli.auth import AuthManager
 
 # Dashboard paths
 DASHBOARD_DIR = Path(__file__).parent
 STATIC_DIR = DASHBOARD_DIR / "static"
 TEMPLATES_DIR = DASHBOARD_DIR / "templates"
+CONFIG_DIR = Path.home() / ".devops-cli"
+
+# =============================================================================
+# SECURITY: CORS Configuration
+# =============================================================================
+# Load allowed origins from config or use secure defaults
+def get_cors_origins() -> List[str]:
+    """Get allowed CORS origins from config file."""
+    cors_file = CONFIG_DIR / "cors.json"
+    default_origins = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ]
+    if cors_file.exists():
+        try:
+            with open(cors_file) as f:
+                config = json.load(f)
+                return config.get("allowed_origins", default_origins)
+        except Exception:
+            pass
+    return default_origins
+
+ALLOWED_ORIGINS = get_cors_origins()
+
+# =============================================================================
+# SECURITY: Rate Limiting for Auth Endpoints
+# =============================================================================
+class RateLimiter:
+    """Simple in-memory rate limiter for authentication endpoints."""
+
+    def __init__(self, max_attempts: int = 5, window_seconds: int = 300):
+        self.max_attempts = max_attempts
+        self.window_seconds = window_seconds
+        self._attempts: dict = defaultdict(list)
+
+    def is_rate_limited(self, key: str) -> bool:
+        """Check if key (IP or email) is rate limited."""
+        now = time.time()
+        # Clean old attempts
+        self._attempts[key] = [
+            t for t in self._attempts[key]
+            if now - t < self.window_seconds
+        ]
+        return len(self._attempts[key]) >= self.max_attempts
+
+    def record_attempt(self, key: str):
+        """Record an authentication attempt."""
+        self._attempts[key].append(time.time())
+
+    def reset(self, key: str):
+        """Reset attempts for a key (on successful login)."""
+        self._attempts[key] = []
+
+    def get_remaining_time(self, key: str) -> int:
+        """Get seconds until rate limit resets."""
+        if not self._attempts[key]:
+            return 0
+        oldest = min(self._attempts[key])
+        return max(0, int(self.window_seconds - (time.time() - oldest)))
+
+# Global rate limiter instance
+auth_rate_limiter = RateLimiter(max_attempts=5, window_seconds=300)
+
+
+# =============================================================================
+# PERFORMANCE: TTL Cache for API Responses
+# =============================================================================
+class TTLCache:
+    """Simple time-to-live cache for API responses."""
+
+    def __init__(self, default_ttl: int = 300):
+        self.default_ttl = default_ttl
+        self._cache: dict = {}
+        self._timestamps: dict = {}
+
+    def get(self, key: str) -> Optional[dict]:
+        """Get value from cache if not expired."""
+        if key not in self._cache:
+            return None
+        if time.time() - self._timestamps.get(key, 0) > self.default_ttl:
+            self.delete(key)
+            return None
+        return self._cache[key]
+
+    def set(self, key: str, value: dict, ttl: Optional[int] = None):
+        """Set value in cache with optional custom TTL."""
+        self._cache[key] = value
+        self._timestamps[key] = time.time()
+
+    def delete(self, key: str):
+        """Delete key from cache."""
+        self._cache.pop(key, None)
+        self._timestamps.pop(key, None)
+
+    def clear(self):
+        """Clear entire cache."""
+        self._cache.clear()
+        self._timestamps.clear()
+
+    def cleanup(self):
+        """Remove expired entries."""
+        now = time.time()
+        expired = [k for k, t in self._timestamps.items() if now - t > self.default_ttl]
+        for key in expired:
+            self.delete(key)
+
+
+# Global cache instances
+github_cache = TTLCache(default_ttl=300)  # 5 minute cache for GitHub API
+monitoring_cache = TTLCache(default_ttl=30)  # 30 second cache for monitoring
+
 
 # Create FastAPI app
 app = FastAPI(
@@ -30,13 +145,13 @@ app = FastAPI(
 )
 auth = AuthManager()
 
-# Add CORS middleware
+# Add CORS middleware with secure configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
 )
 
 # Mount static files
@@ -76,7 +191,6 @@ def require_admin(request: Request) -> dict:
 
 
 # ==================== Team-Based Access Control ====================
-CONFIG_DIR = Path.home() / ".devops-cli"
 DEPLOYMENTS_FILE = CONFIG_DIR / "deployments.json"
 ACTIVITY_FILE = CONFIG_DIR / "activity.json"
 
@@ -223,7 +337,18 @@ async def login_page(request: Request):
 
 @app.post("/api/auth/login")
 async def api_login(request: Request):
-    """Login endpoint."""
+    """Login endpoint with rate limiting."""
+    # Get client IP for rate limiting
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Check rate limit by IP
+    if auth_rate_limiter.is_rate_limited(client_ip):
+        remaining = auth_rate_limiter.get_remaining_time(client_ip)
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many login attempts. Try again in {remaining} seconds."
+        )
+
     data = await request.json()
     email = data.get("email")
     token = data.get("token")
@@ -231,8 +356,24 @@ async def api_login(request: Request):
     if not email or not token:
         raise HTTPException(status_code=400, detail="Email and token required")
 
+    # Also check rate limit by email
+    if auth_rate_limiter.is_rate_limited(email):
+        remaining = auth_rate_limiter.get_remaining_time(email)
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many login attempts for this account. Try again in {remaining} seconds."
+        )
+
+    # Record the attempt
+    auth_rate_limiter.record_attempt(client_ip)
+    auth_rate_limiter.record_attempt(email)
+
     try:
         if auth.login(email, token):
+            # Reset rate limits on successful login
+            auth_rate_limiter.reset(client_ip)
+            auth_rate_limiter.reset(email)
+
             # Get user info
             users = auth.list_users()
             user_info = next((u for u in users if u["email"] == email), None)
@@ -246,13 +387,13 @@ async def api_login(request: Request):
                         "email": email,
                         "name": user_info.get("name", email.split("@")[0]),
                         "role": user_info.get("role", "developer"),
-                        "team": get_user_team(email)  # Read from users.json
+                        "team": get_user_team(email)
                     },
                     "expires_at": (datetime.now() + timedelta(hours=8)).isoformat()
                 }
 
                 # Log successful login
-                log_activity("login", email, "User logged in via dashboard", "success")
+                log_activity("login", email, "User logged in via dashboard", "success", client_ip)
 
                 response = JSONResponse({
                     "success": True,
@@ -266,11 +407,13 @@ async def api_login(request: Request):
                     samesite="lax"
                 )
                 return response
-    except Exception as e:
+    except HTTPException:
+        raise
+    except Exception:
         pass
 
     # Log failed login
-    log_activity("login", email, "Login attempt failed", "failed")
+    log_activity("login", email, "Login attempt failed", "failed", client_ip)
     raise HTTPException(status_code=401, detail="Invalid email or token")
 
 
@@ -504,8 +647,12 @@ async def api_monitoring(user: dict = Depends(require_auth)):
 
 
 @app.get("/api/monitoring/stream")
-async def api_monitoring_stream(request: Request):
+async def api_monitoring_stream(request: Request, user: dict = Depends(require_auth)):
     """Server-Sent Events for real-time monitoring."""
+    # Capture user info before entering generator (closure)
+    user_role = user.get("role")
+    user_email = user.get("email")
+
     async def event_generator():
         while True:
             # Check if client disconnected
@@ -524,20 +671,24 @@ async def api_monitoring_stream(request: Request):
                 servers_from_config = config.get_servers()
 
                 # Filter resources by team access (admin sees all)
-                if user.get("role") != "admin":
+                if user_role != "admin":
                     websites_from_config = filter_by_team_access(
-                        [w.as_dict() for w in websites_from_config], user["email"], "websites"
+                        [w.as_dict() for w in websites_from_config], user_email, "websites"
                     )
+                    # Note: WebsiteConfig needs to be imported from the monitoring module
+                    from devops_cli.monitoring.checker import WebsiteConfig
                     websites_from_config = [WebsiteConfig(**w) for w in websites_from_config]
 
                     apps_from_config = filter_by_team_access(
-                        [a.as_dict() for a in apps_from_config], user["email"], "apps"
+                        [a.as_dict() for a in apps_from_config], user_email, "apps"
                     )
+                    from devops_cli.monitoring.checker import AppConfig
                     apps_from_config = [AppConfig(**a) for a in apps_from_config]
 
                     servers_from_config = filter_by_team_access(
-                        [s.as_dict() for s in servers_from_config], user["email"], "servers"
+                        [s.as_dict() for s in servers_from_config], user_email, "servers"
                     )
+                    from devops_cli.monitoring.checker import ServerConfig
                     servers_from_config = [ServerConfig(**s) for s in servers_from_config]
 
                 results = await checker.check_all(websites_from_config, apps_from_config, servers_from_config)
@@ -1342,7 +1493,7 @@ def can_access_repo(repo_name: str, team_repos: list) -> bool:
 
 @app.get("/api/github/repos")
 async def api_github_repos(user: dict = Depends(require_auth)):
-    """Fetch GitHub org repos with team-based filtering."""
+    """Fetch GitHub org repos with team-based filtering and caching."""
     import httpx
 
     config = get_github_config()
@@ -1359,56 +1510,68 @@ async def api_github_repos(user: dict = Depends(require_auth)):
     team_config = teams.get(user_team, teams.get("default", {}))
     allowed_repos = team_config.get("repos", ["*"])
 
-    # Fetch repos from GitHub API
-    headers = {"Accept": "application/vnd.github.v3+json"}
-    if token:
-        headers["Authorization"] = f"token {token}"
+    # Check cache first (cache key includes org)
+    cache_key = f"github_repos:{org}"
+    cached_repos = github_cache.get(cache_key)
 
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"https://api.github.com/orgs/{org}/repos?per_page=100&sort=updated",
-                headers=headers,
-                timeout=10.0
-            )
+    if cached_repos is None:
+        # Fetch repos from GitHub API
+        headers = {"Accept": "application/vnd.github.v3+json"}
+        if token:
+            headers["Authorization"] = f"token {token}"
 
-            if resp.status_code == 404:
-                return {"error": f"Organization '{org}' not found", "repos": []}
-            elif resp.status_code == 403:
-                return {"error": "Rate limited or token invalid", "repos": [], "hint": "Add GitHub token in teams.yaml"}
-            elif resp.status_code != 200:
-                return {"error": f"GitHub API error: {resp.status_code}", "repos": []}
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    f"https://api.github.com/orgs/{org}/repos?per_page=100&sort=updated",
+                    headers=headers,
+                    timeout=10.0
+                )
 
-            all_repos = resp.json()
+                if resp.status_code == 404:
+                    return {"error": f"Organization '{org}' not found", "repos": []}
+                elif resp.status_code == 403:
+                    return {"error": "Rate limited or token invalid", "repos": [], "hint": "Add GitHub token in teams.yaml"}
+                elif resp.status_code != 200:
+                    return {"error": f"GitHub API error: {resp.status_code}", "repos": []}
 
-            # Filter by team access
-            filtered_repos = []
-            for repo in all_repos:
-                if can_access_repo(repo["name"], allowed_repos):
-                    filtered_repos.append({
-                        "name": repo["name"],
-                        "description": repo.get("description") or "No description",
-                        "url": repo["html_url"],
-                        "language": repo.get("language"),
-                        "stars": repo.get("stargazers_count", 0),
-                        "forks": repo.get("forks_count", 0),
-                        "updated_at": repo.get("updated_at"),
-                        "private": repo.get("private", False),
-                        "default_branch": repo.get("default_branch", "main")
-                    })
+                all_repos = resp.json()
 
-            return {
-                "org": org,
-                "team": user_team,
-                "team_name": team_config.get("name", user_team),
-                "repos": filtered_repos,
-                "total": len(filtered_repos),
-                "all_count": len(all_repos)
-            }
-    except httpx.TimeoutException:
-        return {"error": "GitHub API timeout", "repos": []}
-    except Exception as e:
-        return {"error": str(e), "repos": []}
+                # Cache the raw repos for 5 minutes
+                github_cache.set(cache_key, all_repos)
+
+        except httpx.TimeoutException:
+            return {"error": "GitHub API timeout", "repos": []}
+        except Exception as e:
+            return {"error": str(e), "repos": []}
+    else:
+        all_repos = cached_repos
+
+    # Filter by team access (done after caching to support per-user filtering)
+    filtered_repos = []
+    for repo in all_repos:
+        if can_access_repo(repo["name"], allowed_repos):
+            filtered_repos.append({
+                "name": repo["name"],
+                "description": repo.get("description") or "No description",
+                "url": repo["html_url"],
+                "language": repo.get("language"),
+                "stars": repo.get("stargazers_count", 0),
+                "forks": repo.get("forks_count", 0),
+                "updated_at": repo.get("updated_at"),
+                "private": repo.get("private", False),
+                "default_branch": repo.get("default_branch", "main")
+            })
+
+    return {
+        "org": org,
+        "team": user_team,
+        "team_name": team_config.get("name", user_team),
+        "repos": filtered_repos,
+        "total": len(filtered_repos),
+        "all_count": len(all_repos),
+        "cached": cached_repos is not None
+    }
 
 @app.get("/api/github/config")
 async def api_github_config(user: dict = Depends(require_admin)):

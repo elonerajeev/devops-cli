@@ -201,44 +201,71 @@ def file_logs(
     follow: bool = typer.Option(False, "--follow", "-f", help="Follow log output"),
     grep: Optional[str] = typer.Option(None, "--grep", "-g", help="Filter lines matching pattern"),
 ):
-    """View logs from a file."""
-    file_path = Path(path).expanduser()
+    """View logs from a file.
+
+    Security: Uses subprocess with list arguments to avoid shell injection.
+    Pipes are created manually instead of using shell=True.
+    """
+    file_path = Path(path).expanduser().resolve()
 
     if not file_path.exists():
         error(f"File not found: {file_path}")
         return
 
+    # Security: Validate file path doesn't escape to unexpected locations
+    if not str(file_path).startswith(str(Path.home())) and not str(file_path).startswith("/var/log"):
+        warning(f"Reading file outside home/logs directory: {file_path}")
+
     header(f"File Logs: {file_path.name}")
 
-    if grep:
-        cmd = f"tail -n{lines} '{file_path}' | grep --color=always '{grep}'"
-        if follow:
-            cmd = f"tail -f '{file_path}' | grep --color=always '{grep}'"
-    else:
-        cmd = ["tail", f"-n{lines}"]
-        if follow:
-            cmd.append("-f")
-        cmd.append(str(file_path))
+    # Build tail command
+    tail_cmd = ["tail", f"-n{lines}"]
+    if follow:
+        tail_cmd.append("-f")
+    tail_cmd.append(str(file_path))
 
     try:
-        if isinstance(cmd, str):
-            # Shell command for grep
+        if grep:
+            # Use subprocess pipes instead of shell=True
+            # tail | grep pattern
+            tail_proc = subprocess.Popen(
+                tail_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            grep_cmd = ["grep", "--color=always", grep]
+
             if follow:
-                process = subprocess.Popen(cmd, shell=True, stdout=sys.stdout, stderr=sys.stderr)
-                process.wait()
+                grep_proc = subprocess.Popen(
+                    grep_cmd,
+                    stdin=tail_proc.stdout,
+                    stdout=sys.stdout,
+                    stderr=sys.stderr
+                )
+                tail_proc.stdout.close()  # Allow tail to receive SIGPIPE
+                grep_proc.wait()
             else:
-                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-                console.print(result.stdout)
+                grep_proc = subprocess.Popen(
+                    grep_cmd,
+                    stdin=tail_proc.stdout,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+                tail_proc.stdout.close()
+                output, _ = grep_proc.communicate()
+                console.print(output.decode('utf-8', errors='replace'))
         else:
             if follow:
-                process = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
+                process = subprocess.Popen(tail_cmd, stdout=sys.stdout, stderr=sys.stderr)
                 process.wait()
             else:
-                result = subprocess.run(cmd, capture_output=True, text=True)
+                result = subprocess.run(tail_cmd, capture_output=True, text=True)
                 console.print(result.stdout)
     except KeyboardInterrupt:
         console.print("\n")
         info("Stopped")
+    except FileNotFoundError as e:
+        error(f"Command not found: {e.filename}")
 
 
 @app.command("k8s")

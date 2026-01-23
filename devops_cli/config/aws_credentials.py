@@ -6,8 +6,9 @@ No dependency on ~/.aws/credentials or AWS CLI installation.
 """
 
 import json
-import base64
-import hashlib
+import os
+import stat
+import tempfile
 from pathlib import Path
 from typing import Optional, Dict, Tuple
 from cryptography.fernet import Fernet
@@ -18,18 +19,46 @@ AWS_CREDS_FILE = ADMIN_DIR / ".aws_credentials.enc"
 AWS_KEY_FILE = ADMIN_DIR / ".aws_key"
 
 
+def _secure_write_file(filepath: Path, data: bytes, mode: int = 0o600) -> None:
+    """
+    Securely write data to file with correct permissions from the start.
+
+    Uses atomic write pattern: write to temp file with correct permissions,
+    then move to final location. This prevents race conditions where the
+    file is briefly world-readable.
+    """
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create temp file in same directory (ensures same filesystem for rename)
+    fd, temp_path = tempfile.mkstemp(dir=filepath.parent, prefix='.tmp_')
+    try:
+        # Set permissions before writing data
+        os.fchmod(fd, mode)
+        os.write(fd, data)
+        os.close(fd)
+        fd = None
+
+        # Atomic move to final location
+        os.rename(temp_path, filepath)
+    finally:
+        if fd is not None:
+            os.close(fd)
+        # Clean up temp file if still exists (rename failed)
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+
+
 def _get_or_create_encryption_key() -> bytes:
     """Get or create encryption key for AWS credentials."""
-    ADMIN_DIR.mkdir(parents=True, exist_ok=True)
+    ADMIN_DIR.mkdir(parents=True, mode=0o700, exist_ok=True)
 
     if AWS_KEY_FILE.exists():
         with open(AWS_KEY_FILE, 'rb') as f:
             return f.read()
 
-    # Generate new key
+    # Generate new key and write securely
     key = Fernet.generate_key()
-    AWS_KEY_FILE.write_bytes(key)
-    AWS_KEY_FILE.chmod(0o600)  # Read/write only for owner
+    _secure_write_file(AWS_KEY_FILE, key, mode=0o600)
     return key
 
 
@@ -41,6 +70,8 @@ def save_aws_credentials(
 ) -> bool:
     """
     Save AWS credentials securely (encrypted).
+
+    Uses atomic write with correct permissions to prevent race conditions.
 
     Args:
         access_key: AWS Access Key ID
@@ -65,10 +96,8 @@ def save_aws_credentials(
 
         encrypted_data = fernet.encrypt(json.dumps(credentials).encode())
 
-        # Save encrypted file
-        ADMIN_DIR.mkdir(parents=True, exist_ok=True)
-        AWS_CREDS_FILE.write_bytes(encrypted_data)
-        AWS_CREDS_FILE.chmod(0o600)  # Read/write only for owner
+        # Save encrypted file securely (atomic write with permissions)
+        _secure_write_file(AWS_CREDS_FILE, encrypted_data, mode=0o600)
 
         return True
 

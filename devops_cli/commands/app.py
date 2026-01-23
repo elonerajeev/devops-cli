@@ -674,18 +674,28 @@ def app_health(
 
         elif health_type == "command":
             import subprocess
+            import shlex
             command = health_config.get("command")
 
             try:
-                proc = subprocess.run(command, shell=True, capture_output=True, timeout=30)
-                latency = (time.time() - start) * 1000
-                result = {
-                    "healthy": proc.returncode == 0,
-                    "latency": latency,
-                    "message": "OK" if proc.returncode == 0 else f"Exit {proc.returncode}",
-                }
+                # Security: Use shlex.split() to safely parse command
+                cmd_list = shlex.split(command) if isinstance(command, str) else command
+                if not cmd_list:
+                    result = {"healthy": False, "message": "Empty command"}
+                else:
+                    proc = subprocess.run(cmd_list, capture_output=True, timeout=30)
+                    latency = (time.time() - start) * 1000
+                    result = {
+                        "healthy": proc.returncode == 0,
+                        "latency": latency,
+                        "message": "OK" if proc.returncode == 0 else f"Exit {proc.returncode}",
+                    }
             except subprocess.TimeoutExpired:
                 result = {"healthy": False, "message": "Timeout"}
+            except ValueError as e:
+                result = {"healthy": False, "message": f"Invalid cmd: {str(e)[:20]}"}
+            except FileNotFoundError:
+                result = {"healthy": False, "message": "Command not found"}
             except Exception as e:
                 result = {"healthy": False, "message": str(e)[:30]}
 

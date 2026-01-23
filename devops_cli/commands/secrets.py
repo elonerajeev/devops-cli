@@ -5,7 +5,7 @@ import json
 import base64
 import hashlib
 import getpass
-from typing import Optional
+from typing import Optional, Tuple
 from pathlib import Path
 from datetime import datetime
 
@@ -27,31 +27,106 @@ console = Console()
 SECRETS_DIR = Path.home() / ".devops-cli" / "secrets"
 ENV_FILE = ".env"
 
+# =============================================================================
+# SECURITY: Cryptographic Functions using Fernet (AES-128-CBC + HMAC)
+# =============================================================================
 
-def get_encryption_key(password: str) -> bytes:
-    """Derive encryption key from password."""
+def _generate_salt() -> bytes:
+    """Generate a random 16-byte salt for key derivation."""
+    return os.urandom(16)
+
+
+def _derive_key(password: str, salt: bytes) -> bytes:
+    """Derive a 32-byte encryption key from password using PBKDF2."""
     return hashlib.pbkdf2_hmac(
         'sha256',
-        password.encode(),
-        b'devops-cli-salt',  # In production, use random salt stored with data
-        100000,
+        password.encode('utf-8'),
+        salt,
+        iterations=100000,
         dklen=32
     )
 
 
+def _get_fernet_key(password: str, salt: bytes) -> bytes:
+    """Get a Fernet-compatible key (base64-encoded 32 bytes)."""
+    derived = _derive_key(password, salt)
+    return base64.urlsafe_b64encode(derived)
+
+
+def secure_encrypt(data: str, password: str) -> str:
+    """
+    Encrypt data using Fernet (AES-128-CBC with HMAC).
+
+    Returns a string containing: salt (16 bytes) + encrypted data, base64-encoded.
+    The salt is randomly generated for each encryption operation.
+    """
+    try:
+        from cryptography.fernet import Fernet
+    except ImportError:
+        raise ImportError(
+            "cryptography package required for secure encryption. "
+            "Install with: pip install cryptography"
+        )
+
+    # Generate random salt
+    salt = _generate_salt()
+
+    # Derive key from password + salt
+    fernet_key = _get_fernet_key(password, salt)
+    fernet = Fernet(fernet_key)
+
+    # Encrypt the data
+    encrypted = fernet.encrypt(data.encode('utf-8'))
+
+    # Combine salt + encrypted data and encode
+    combined = salt + encrypted
+    return base64.urlsafe_b64encode(combined).decode('utf-8')
+
+
+def secure_decrypt(encrypted_data: str, password: str) -> str:
+    """
+    Decrypt data encrypted with secure_encrypt.
+
+    Extracts the salt from the encrypted data and uses it to derive the key.
+    """
+    try:
+        from cryptography.fernet import Fernet, InvalidToken
+    except ImportError:
+        raise ImportError(
+            "cryptography package required for secure decryption. "
+            "Install with: pip install cryptography"
+        )
+
+    try:
+        # Decode the combined data
+        combined = base64.urlsafe_b64decode(encrypted_data.encode('utf-8'))
+
+        # Extract salt (first 16 bytes) and encrypted data
+        salt = combined[:16]
+        encrypted = combined[16:]
+
+        # Derive key from password + salt
+        fernet_key = _get_fernet_key(password, salt)
+        fernet = Fernet(fernet_key)
+
+        # Decrypt
+        decrypted = fernet.decrypt(encrypted)
+        return decrypted.decode('utf-8')
+    except InvalidToken:
+        raise ValueError("Decryption failed: Invalid password or corrupted data")
+    except Exception as e:
+        raise ValueError(f"Decryption failed: {str(e)}")
+
+
+# Backward compatibility aliases (will use secure versions)
 def simple_encrypt(data: str, password: str) -> str:
-    """Simple XOR encryption (for demo - use cryptography lib in production)."""
-    key = get_encryption_key(password)
-    encrypted = bytes([ord(c) ^ key[i % len(key)] for i, c in enumerate(data)])
-    return base64.b64encode(encrypted).decode()
+    """Encrypt data securely using Fernet. (Backward compatible alias)"""
+    return secure_encrypt(data, password)
 
 
 def simple_decrypt(encrypted_data: str, password: str) -> str:
-    """Simple XOR decryption."""
-    key = get_encryption_key(password)
-    data = base64.b64decode(encrypted_data)
-    decrypted = ''.join([chr(b ^ key[i % len(key)]) for i, b in enumerate(data)])
-    return decrypted
+    """Decrypt data securely using Fernet. (Backward compatible alias)"""
+    return secure_decrypt(encrypted_data, password)
 
 
 def load_env_file(path: Path) -> dict:

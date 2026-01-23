@@ -69,12 +69,22 @@ def check_tcp(host: str, port: int, timeout: int = 5) -> dict:
 
 
 def check_command(command: str, timeout: int = 30) -> dict:
-    """Check by running a command (exit 0 = healthy)."""
+    """Check by running a command (exit 0 = healthy).
+
+    Security: Uses shlex.split() to safely parse command string into list,
+    avoiding shell injection vulnerabilities.
+    """
+    import shlex
+
     start = time.time()
     try:
+        # Safely split command string into list to avoid shell injection
+        cmd_list = shlex.split(command)
+        if not cmd_list:
+            return {"healthy": False, "message": "Empty command"}
+
         result = subprocess.run(
-            command,
-            shell=True,
+            cmd_list,
             capture_output=True,
             text=True,
             timeout=timeout
@@ -89,6 +99,10 @@ def check_command(command: str, timeout: int = 30) -> dict:
         }
     except subprocess.TimeoutExpired:
         return {"healthy": False, "message": "Command timeout"}
+    except ValueError as e:
+        return {"healthy": False, "message": f"Invalid command syntax: {str(e)}"}
+    except FileNotFoundError:
+        return {"healthy": False, "message": "Command not found"}
     except Exception as e:
         return {"healthy": False, "message": str(e)}
 
