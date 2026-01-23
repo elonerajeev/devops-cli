@@ -1,17 +1,20 @@
-"Website commands for developers.
+"""Website commands for developers.
 
 This module provides commands for developers to:
 - List configured websites
 - View information about a website
 - Check the health of a website
-"
+"""
 
+import asyncio
 import sys
 import time
+from datetime import datetime
 from typing import Optional, List
 
 import typer
 import httpx
+import yaml
 from rich.console import Console
 from rich.table import Table
 
@@ -38,7 +41,7 @@ def get_website_config_for_check(name: str) -> Optional[WebsiteConfig]:
         expected_status=website_dict.get("expected_status", 200),
         timeout=website_dict.get("timeout", 10),
         method=website_dict.get("method", "GET"),
-        headers=website_dict.get("headers", {{}}),
+        headers=website_dict.get("headers", {}),
         enabled=website_dict.get("enabled", True),
         created_at=website_dict.get("added_at", datetime.now().isoformat()) # Use added_at from admin, or default
     )
