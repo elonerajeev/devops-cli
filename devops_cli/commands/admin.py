@@ -46,9 +46,11 @@ from devops_cli.utils.output import (
     success, error, warning, info, header,
     create_table, status_badge, console as out_console
 )
+from devops_cli.auth import AuthManager
 
 app = typer.Typer(help="Admin commands for Cloud Engineers to configure the CLI")
 console = Console()
+auth = AuthManager()
 
 # Commands that don't require admin auth (first-time setup)
 INIT_COMMANDS = ["init"]
@@ -76,8 +78,6 @@ def check_admin_access(ctx: typer.Context):
         raise typer.Exit(0)
 
     # Check if any users exist (if not, allow first admin setup)
-    from devops_cli.auth import AuthManager
-    auth = AuthManager()
     users = auth.list_users()
 
     if not users:
@@ -1050,7 +1050,7 @@ def import_config(
 
         if "websites" in imported:
             websites_config = load_websites_config()
-            websites_config.update(imported["websites"].get("websites", {})) # Access the 'websites' key in imported data
+            websites_config.update(imported.get("websites", {}))
             save_websites_config(websites_config)
 
         if "teams" in imported:
@@ -1064,11 +1064,11 @@ def import_config(
         if "aws" in imported:
             save_aws_config(imported["aws"])
         if "apps" in imported:
-            save_apps_config(imported["apps"])
+            save_apps_config({"apps": imported["apps"]})
         if "servers" in imported:
-            save_servers_config(imported["servers"])
+            save_servers_config({"servers": imported["servers"]})
         if "websites" in imported:
-            save_websites_config(imported["websites"].get("websites", {})) # Access the 'websites' key in imported data
+            save_websites_config(imported.get("websites", {}))
         if "teams" in imported:
             save_teams_config(imported["teams"])
 
@@ -1141,8 +1141,6 @@ def admin_status():
 
     # Users
     try:
-        from devops_cli.auth import AuthManager
-        auth = AuthManager()
         users = auth.list_users()
         if users:
             console.print(f"[green]✓[/] Users: {len(users)} registered")
@@ -1165,21 +1163,18 @@ def add_user(
     email: str = typer.Option(..., "--email", "-e", prompt="User email", help="User's email address"),
     name: Optional[str] = typer.Option(None, "--name", "-n", help="User's display name"),
     role: str = typer.Option("developer", "--role", "-r", help="Role: developer or admin"),
+    team: str = typer.Option("default", "--team", "-t", help="Team name"),
 ):
     """Register a new user and generate access token.
 
     The token will be displayed ONCE. Share it securely with the user.
     """
-    from devops_cli.auth import AuthManager
-
     if role not in ["developer", "admin"]:
         error("Role must be 'developer' or 'admin'")
         return
 
-    auth = AuthManager()
-
     try:
-        token = auth.register_user(email, name, role)
+        token = auth.register_user(email, name, role, team)
 
         success(f"User '{email}' registered!")
         console.print()
@@ -1198,9 +1193,6 @@ def add_user(
 @app.command("user-list")
 def list_users():
     """List all registered users."""
-    from devops_cli.auth import AuthManager
-
-    auth = AuthManager()
     users = auth.list_users()
 
     if not users:
@@ -1212,7 +1204,7 @@ def list_users():
 
     table = create_table(
         "",
-        [("Email", "cyan"), ("Name", ""), ("Role", ""), ("Status", ""), ("Last Login", "dim")]
+        [("Email", "cyan"), ("Name", ""), ("Role", ""), ("Team", ""), ("Status", ""), ("Last Login", "dim")]
     )
 
     for user in users:
@@ -1230,6 +1222,7 @@ def list_users():
             user["email"],
             user.get("name", "-"),
             user.get("role", "developer"),
+            user.get("team", "default"),
             status_str,
             last_login or "-"
         )
@@ -1243,10 +1236,6 @@ def remove_user(
     email: str = typer.Argument(..., help="User email to remove"),
 ):
     """Remove a user permanently."""
-    from devops_cli.auth import AuthManager
-
-    auth = AuthManager()
-
     if not Confirm.ask(f"Remove user '{email}' permanently?"):
         info("Cancelled")
         return
@@ -1262,10 +1251,6 @@ def deactivate_user(
     email: str = typer.Argument(..., help="User email to deactivate"),
 ):
     """Deactivate a user (prevents login but keeps record)."""
-    from devops_cli.auth import AuthManager
-
-    auth = AuthManager()
-
     if auth.deactivate_user(email):
         success(f"User '{email}' deactivated")
         info("User cannot login until reactivated")
@@ -1278,10 +1263,6 @@ def activate_user(
     email: str = typer.Argument(..., help="User email to activate"),
 ):
     """Reactivate a deactivated user."""
-    from devops_cli.auth import AuthManager
-
-    auth = AuthManager()
-
     if auth.activate_user(email):
         success(f"User '{email}' activated")
     else:
@@ -1293,10 +1274,6 @@ def reset_user_token(
     email: str = typer.Argument(..., help="User email to reset token for"),
 ):
     """Generate a new token for a user (invalidates old token)."""
-    from devops_cli.auth import AuthManager
-
-    auth = AuthManager()
-
     if not Confirm.ask(f"Generate new token for '{email}'? (old token will stop working)"):
         info("Cancelled")
         return
@@ -1321,9 +1298,6 @@ def view_audit_logs(
     limit: int = typer.Option(50, "--limit", "-l", help="Number of log entries to show"),
 ):
     """View authentication audit logs."""
-    from devops_cli.auth import AuthManager
-
-    auth = AuthManager()
     logs = auth.get_audit_logs(limit)
 
     if not logs:

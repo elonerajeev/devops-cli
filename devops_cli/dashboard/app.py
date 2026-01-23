@@ -7,7 +7,7 @@ from typing import Optional
 from datetime import datetime, timedelta
 import json
 
-from fastapi import FastAPI, Request, HTTPException, Depends, status
+from fastapi import FastAPI, Request, HTTPException, Depends, status, File, UploadFile, Form
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -15,6 +15,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from pydantic import ValidationError # Import ValidationError
+from devops_cli.auth import AuthManager
 
 # Dashboard paths
 DASHBOARD_DIR = Path(__file__).parent
@@ -27,6 +28,7 @@ app = FastAPI(
     description="Web interface for DevOps CLI",
     version="1.0.0"
 )
+auth = AuthManager()
 
 # Add CORS middleware
 app.add_middleware(
@@ -45,12 +47,6 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 # Session storage (in-memory for simplicity)
 sessions = {}
-
-
-def get_auth_manager():
-    """Get AuthManager instance."""
-    from devops_cli.auth import AuthManager
-    return AuthManager()
 
 
 def get_current_user(request: Request) -> Optional[dict]:
@@ -94,12 +90,10 @@ def load_teams_config():
     return {"teams": {"default": {"name": "Default Team", "apps": ["*"], "servers": ["*"], "websites": ["*"], "repos": ["*"]}}}
 
 def get_user_team(email: str) -> str:
-    """Get user's team."""
-    users_file = CONFIG_DIR / "auth" / "users.json"
-    if users_file.exists():
-        with open(users_file) as f:
-            users = json.load(f)
-            return users.get(email, {}).get("team", "default")
+    """Get user's team using AuthManager."""
+    user_data = auth.get_user_data(email)
+    if user_data:
+        return user_data.get("team", "default")
     return "default"
 
 def set_user_team(email: str, team: str):
@@ -236,8 +230,6 @@ async def api_login(request: Request):
 
     if not email or not token:
         raise HTTPException(status_code=400, detail="Email and token required")
-
-    auth = get_auth_manager()
 
     try:
         if auth.login(email, token):
@@ -588,7 +580,6 @@ async def api_monitoring_stream(request: Request):
 @app.get("/api/users")
 async def api_users(user: dict = Depends(require_admin)):
     """Get all users (admin only)."""
-    auth = get_auth_manager()
     users = auth.list_users()
     # Add team info to users
     for u in users:
@@ -612,8 +603,6 @@ async def api_create_user(request: Request, user: dict = Depends(require_admin))
 
     if role not in ["developer", "admin"]:
         raise HTTPException(status_code=400, detail="Role must be developer or admin")
-
-    auth = get_auth_manager()
 
     try:
         token = auth.register_user(email, name, role)
@@ -639,8 +628,6 @@ async def api_set_user_team(email: str, request: Request, user: dict = Depends(r
 @app.delete("/api/users/{email}")
 async def api_delete_user(email: str, user: dict = Depends(require_admin)):
     """Delete user (admin only)."""
-    auth = get_auth_manager()
-
     if auth.remove_user(email):
         log_activity("user", user["email"], f"Deleted user {email}")
         return {"success": True}
@@ -1345,16 +1332,6 @@ def get_github_config():
             return yaml.safe_load(f) or {}
     return {}
 
-def get_user_team(email: str) -> str:
-    """Get user's team from users.json."""
-    users_file = Path.home() / ".devops-cli" / "auth" / "users.json"
-    if users_file.exists():
-        with open(users_file) as f:
-            users = json.load(f)
-            user = users.get(email, {})
-            return user.get("team", "default")
-    return "default"
-
 def can_access_repo(repo_name: str, team_repos: list) -> bool:
     """Check if team can access repo."""
     import fnmatch
@@ -1483,7 +1460,6 @@ async def api_config_status(user: dict = Depends(require_auth)):
         websites_config = load_websites_config()
         teams_config = load_teams_config() # Also load teams config
 
-        auth = get_auth_manager()
         users = auth.list_users()
 
         return {
@@ -1648,6 +1624,9 @@ async def api_config_upload(
             save_teams_config(current_config)
             log_activity("config", user["email"], f"Uploaded and {'merged' if merge else 'replaced'} teams config.")
             return {"success": True, "message": f"Teams configuration {'merged' if merge else 'replaced'} successfully."}
+    except Exception as e:
+        log_activity("config", user["email"], f"Config upload failed: {str(e)}", "failed")
+        raise HTTPException(status_code=500, detail=f"Configuration upload failed: {str(e)}")
 
 
 
