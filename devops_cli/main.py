@@ -7,7 +7,7 @@ from rich.table import Table
 from rich import box
 
 from devops_cli import __version__
-from devops_cli.commands import git, health, logs, deploy, ssh, secrets, aws_logs, admin, app as app_cmd, auth, monitor, dashboard
+from devops_cli.commands import git, health, logs, deploy, ssh, secrets, aws_logs, admin, app as app_cmd, auth, monitor, dashboard, website
 from devops_cli.config.settings import init_config, load_config
 from devops_cli.utils.output import success, info, print_panel
 from devops_cli.utils.config_validator import ConfigValidator, print_not_configured
@@ -31,6 +31,7 @@ app.add_typer(secrets.app, name="secrets", help="Secrets and env management")
 app.add_typer(aws_logs.app, name="aws", help="AWS logs (CloudWatch, ECS, EC2)")
 app.add_typer(admin.app, name="admin", help="Admin: Configure apps, servers, AWS (for Cloud Engineers)")
 app.add_typer(app_cmd.app, name="app", help="Applications: View logs, health for configured apps")
+app.add_typer(website.app, name="website", help="Websites: View info and health for configured websites")
 app.add_typer(auth.app, name="auth", help="Authentication: Login/logout for CLI access")
 app.add_typer(monitor.app, name="monitor", help="Real-time monitoring dashboard for websites, apps, servers")
 app.add_typer(dashboard.app, name="dashboard", help="Web Dashboard - Beautiful browser-based monitoring UI")

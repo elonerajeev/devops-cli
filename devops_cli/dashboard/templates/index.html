@@ -78,6 +78,10 @@
                     <i class="fas fa-server w-5 mr-3 text-warning"></i>
                     <span>Servers</span>
                 </a>
+                <a href="#" onclick="showSection('websites')" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="websites">
+                    <i class="fas fa-globe w-5 mr-3 text-accent"></i>
+                    <span>Websites</span>
+                </a>
                 <a href="#" onclick="showSection('deployments')" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="deployments">
                     <i class="fas fa-rocket w-5 mr-3 text-pink-500"></i>
                     <span>Deployments</span>
@@ -240,6 +244,11 @@
                                     <p class="font-medium">View Servers</p>
                                     <p class="text-xs text-gray-500">SSH servers</p>
                                 </button>
+                                <button onclick="showSection('websites')" class="p-4 bg-gray-700/50 rounded-xl hover:bg-gray-700 transition-colors text-left">
+                                    <i class="fas fa-globe text-accent text-2xl mb-2"></i>
+                                    <p class="font-medium">View Websites</p>
+                                    <p class="text-xs text-gray-500">Monitored websites</p>
+                                </button>
                                 <button onclick="window.open('https://github.com', '_blank')" class="p-4 bg-gray-700/50 rounded-xl hover:bg-gray-700 transition-colors text-left">
                                     <i class="fab fa-github text-white text-2xl mb-2"></i>
                                     <p class="font-medium">GitHub</p>
@@ -320,6 +329,21 @@
                         </div>
                         <div id="servers-list" class="space-y-4">
                             <p class="text-gray-500 text-center py-8">Loading servers...</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Websites Section -->
+                <section id="section-websites" class="section hidden">
+                    <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                        <div class="flex items-center justify-between mb-6">
+                            <h3 class="text-lg font-semibold flex items-center">
+                                <i class="fas fa-globe text-accent mr-2"></i>
+                                Configured Websites
+                            </h3>
+                        </div>
+                        <div id="websites-main-list" class="space-y-4">
+                            <p class="text-gray-500 text-center py-8">Loading websites...</p>
                         </div>
                     </div>
                 </section>
@@ -566,7 +590,7 @@
                 <!-- Documents Section (Admin Only) -->
                 <section id="section-documents" class="section hidden">
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        <!-- Upload Panel -->
+                        <!-- Upload Document Panel -->
                         <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
                             <h3 class="text-lg font-semibold mb-4 flex items-center">
                                 <i class="fas fa-upload text-orange-500 mr-2"></i>
@@ -578,6 +602,7 @@
                                     <select id="docResourceType" class="w-full px-3 py-2 bg-gray-700 rounded-lg border border-gray-600 text-sm" onchange="loadResourceOptions()">
                                         <option value="app">Application</option>
                                         <option value="server">Server</option>
+                                        <option value="website">Website</option>
                                     </select>
                                 </div>
                                 <div>
@@ -601,8 +626,45 @@
                             </form>
                         </div>
 
+                        <!-- Upload Configuration Panel -->
+                        <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                            <h3 class="text-lg font-semibold mb-4 flex items-center">
+                                <i class="fas fa-file-upload text-purple-500 mr-2"></i>
+                                Upload Configuration
+                            </h3>
+                            <form id="uploadConfigForm" class="space-y-4">
+                                <div>
+                                    <label class="block text-sm text-gray-400 mb-1">Configuration Type</label>
+                                    <select id="configType" class="w-full px-3 py-2 bg-gray-700 rounded-lg border border-gray-600 text-sm">
+                                        <option value="apps">Applications (apps.yaml)</option>
+                                        <option value="servers">Servers (servers.yaml)</option>
+                                        <option value="websites">Websites (websites.yaml)</option>
+                                        <option value="aws">AWS (aws.yaml)</option>
+                                        <option value="teams">Teams (teams.yaml)</option>
+                                        <option value="full">Full Config (devops-config.yaml)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm text-gray-400 mb-1">Configuration File (YAML)</label>
+                                    <input type="file" id="configFile" accept=".yaml,.yml" required class="w-full px-3 py-2 bg-gray-700 rounded-lg border border-gray-600 text-sm file:mr-4 file:py-1 file:px-3 file:rounded file:border-0 file:bg-primary file:text-white file:cursor-pointer">
+                                    <p class="text-xs text-gray-500 mt-1">Accepts .yaml or .yml files</p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm text-gray-400 mb-1">Merge or Replace?</label>
+                                    <select id="configMergeOption" class="w-full px-3 py-2 bg-gray-700 rounded-lg border border-gray-600 text-sm">
+                                        <option value="merge">Merge with existing config</option>
+                                        <option value="replace">Replace existing config</option>
+                                    </select>
+                                    <p class="text-xs text-gray-500 mt-1">Merge adds new entries, Replace overwrites fully.</p>
+                                </div>
+                                <button type="submit" class="w-full px-4 py-2 bg-purple-500 rounded-lg hover:bg-purple-600 transition-colors">
+                                    <i class="fas fa-upload mr-2"></i>Upload Configuration
+                                </button>
+                            </form>
+                        </div>
+
                         <!-- Documents List -->
-                        <div class="lg:col-span-2 bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                        <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
                             <div class="flex items-center justify-between mb-6">
                                 <h3 class="text-lg font-semibold flex items-center">
                                     <i class="fas fa-file-alt text-orange-500 mr-2"></i>
@@ -714,6 +776,7 @@
             // Load section data
             if (section === 'apps') loadApps();
             if (section === 'servers') loadServers();
+            if (section === 'websites') loadWebsites();
             if (section === 'users') loadUsers();
             if (section === 'monitoring') loadMonitoring();
             if (section === 'deployments') loadDeployments();
@@ -925,6 +988,42 @@
                 }
             } catch (error) {
                 console.error('Error loading servers:', error);
+            }
+        }
+
+        // Load websites
+        async function loadWebsites() {
+            try {
+                const response = await fetch('/api/websites');
+                const data = await response.json();
+
+                const websitesList = document.getElementById('websites-main-list');
+
+                if (data.websites && data.websites.length > 0) {
+                    websitesList.innerHTML = data.websites.map(website => `
+                        <div class="p-4 bg-gray-700/30 rounded-xl hover:bg-gray-700/50 transition-colors">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center space-x-4">
+                                    <div class="w-12 h-12 bg-accent/20 rounded-xl flex items-center justify-center">
+                                        <i class="fas fa-globe text-accent"></i>
+                                    </div>
+                                    <div>
+                                        <p class="font-medium">${website.name}</p>
+                                        <p class="text-sm text-gray-500">${website.url}</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <span class="px-2 py-1 bg-gray-600 rounded text-xs">${website.method}</span>
+                                    <span class="px-2 py-1 bg-gray-600 rounded text-xs">Expected: ${website.expected_status}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    websitesList.innerHTML = '<p class="text-gray-500 text-center py-8">No websites configured. Run: devops admin website-add</p>';
+                }
+            } catch (error) {
+                console.error('Error loading websites:', error);
             }
         }
 
@@ -1504,11 +1603,16 @@
                     const data = await response.json();
                     select.innerHTML = '<option value="">Select application...</option>' +
                         (data.apps || []).map(app => `<option value="${app.name}">${app.name}</option>`).join('');
-                } else {
+                } else if (type === 'server') {
                     response = await fetch('/api/servers');
                     const data = await response.json();
                     select.innerHTML = '<option value="">Select server...</option>' +
                         (data.servers || []).map(server => `<option value="${server.name}">${server.name}</option>`).join('');
+                } else if (type === 'website') {
+                    response = await fetch('/api/websites');
+                    const data = await response.json();
+                    select.innerHTML = '<option value="">Select website...</option>' +
+                        (data.websites || []).map(website => `<option value="${website.name}">${website.name}</option>`).join('');
                 }
             } catch (error) {
                 console.error('Error loading resources:', error);
@@ -1574,6 +1678,46 @@
                             loadDocuments();
                         } else {
                             alert(data.detail || 'Error uploading document');
+                        }
+                    } catch (error) {
+                        alert('Error: ' + error.message);
+                    }
+                });
+            }
+
+            const uploadConfigForm = document.getElementById('uploadConfigForm');
+            if (uploadConfigForm) {
+                uploadConfigForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+
+                    const configType = document.getElementById('configType').value;
+                    const configFile = document.getElementById('configFile').files[0];
+                    const mergeOption = document.getElementById('configMergeOption').value;
+
+                    if (!configFile) {
+                        alert('Please select a configuration file');
+                        return;
+                    }
+
+                    const formData = new FormData();
+                    formData.append('file', configFile);
+                    formData.append('config_type', configType);
+                    formData.append('merge', mergeOption === 'merge');
+
+                    try {
+                        const response = await fetch('/api/config/upload', {
+                            method: 'POST',
+                            body: formData
+                        });
+
+                        const data = await response.json();
+
+                        if (response.ok) {
+                            alert(data.message || 'Configuration uploaded successfully!');
+                            uploadConfigForm.reset();
+                            refreshData(); // Refresh all data after config upload
+                        } else {
+                            alert(data.detail || 'Error uploading configuration');
                         }
                     } catch (error) {
                         alert('Error: ' + error.message);
