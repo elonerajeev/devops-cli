@@ -550,18 +550,21 @@ async def api_websites(user: dict = Depends(require_auth)):
     from devops_cli.config.websites import load_websites_config
 
     try:
-        config = load_websites_config()
-        websites = config.get("websites", {}) # Changed to .get("websites", {}) as per config structure
+        # load_websites_config() returns the websites dict directly (not wrapped)
+        websites = load_websites_config()
 
         result = []
         for name, website in websites.items():
-            result.append({
-                "name": name,
-                "url": website.get("url", ""),
-                "expected_status": website.get("expected_status", 200),
-                "method": website.get("method", "GET"),
-                "timeout": website.get("timeout", 10),
-            })
+            if isinstance(website, dict):
+                result.append({
+                    "name": website.get("name", name),
+                    "url": website.get("url", ""),
+                    "description": website.get("description", ""),
+                    "expected_status": website.get("expected_status", 200),
+                    "method": website.get("method", "GET"),
+                    "timeout": website.get("timeout", 10),
+                    "tags": website.get("tags", []),
+                })
 
         # Filter by team access (admin sees all)
         if user.get("role") != "admin":
@@ -580,6 +583,7 @@ async def api_monitoring(user: dict = Depends(require_auth)):
     try:
         from devops_cli.monitoring import MonitoringConfig, HealthChecker
         from devops_cli.monitoring.checker import HealthStatus
+        from devops_cli.monitoring.config import WebsiteConfig, AppConfig, ServerConfig
 
         config = MonitoringConfig()
         checker = HealthChecker()
@@ -672,23 +676,21 @@ async def api_monitoring_stream(request: Request, user: dict = Depends(require_a
 
                 # Filter resources by team access (admin sees all)
                 if user_role != "admin":
+                    from devops_cli.monitoring.config import WebsiteConfig, AppConfig, ServerConfig
+
                     websites_from_config = filter_by_team_access(
                         [w.as_dict() for w in websites_from_config], user_email, "websites"
                     )
-                    # Note: WebsiteConfig needs to be imported from the monitoring module
-                    from devops_cli.monitoring.checker import WebsiteConfig
                     websites_from_config = [WebsiteConfig(**w) for w in websites_from_config]
 
                     apps_from_config = filter_by_team_access(
                         [a.as_dict() for a in apps_from_config], user_email, "apps"
                     )
-                    from devops_cli.monitoring.checker import AppConfig
                     apps_from_config = [AppConfig(**a) for a in apps_from_config]
 
                     servers_from_config = filter_by_team_access(
                         [s.as_dict() for s in servers_from_config], user_email, "servers"
                     )
-                    from devops_cli.monitoring.checker import ServerConfig
                     servers_from_config = [ServerConfig(**s) for s in servers_from_config]
 
                 results = await checker.check_all(websites_from_config, apps_from_config, servers_from_config)
@@ -1086,25 +1088,48 @@ async def api_app_logs(
 
     # Friendly message if nothing available
     if not logs_fetched:
-        result["logs"] = [{
-            "timestamp": datetime.now().isoformat(),
-            "level": "INFO",
-            "message": f"👋 Welcome! Logs for '{app_name}' are not yet configured.",
-            "source": "system"
-        }, {
-            "timestamp": datetime.now().isoformat(),
-            "level": "INFO",
-            "message": "💡 Ask your admin to configure log sources or upload log documentation.",
-            "source": "system"
-        }, {
-            "timestamp": datetime.now().isoformat(),
-            "level": "INFO",
-            "message": f"📋 Supported sources: CloudWatch, EC2, Docker, Kubernetes, PM2, File",
-            "source": "system"
-        }]
+        if logs_config and result.get("live_error"):
+            # Logs are configured but failed to fetch
+            result["logs"] = [{
+                "timestamp": datetime.now().isoformat(),
+                "level": "ERROR",
+                "message": f"❌ Failed to fetch logs from {log_type}",
+                "source": "system"
+            }, {
+                "timestamp": datetime.now().isoformat(),
+                "level": "ERROR",
+                "message": f"Error: {result['live_error']}",
+                "source": "system"
+            }]
+            if result.get("hint"):
+                result["logs"].append({
+                    "timestamp": datetime.now().isoformat(),
+                    "level": "WARN",
+                    "message": f"💡 Hint: {result['hint']}",
+                    "source": "system"
+                })
+        else:
+            # No logs configured
+            result["logs"] = [{
+                "timestamp": datetime.now().isoformat(),
+                "level": "INFO",
+                "message": f"👋 Welcome! Logs for '{app_name}' are not yet configured.",
+                "source": "system"
+            }, {
+                "timestamp": datetime.now().isoformat(),
+                "level": "INFO",
+                "message": "💡 Ask your admin to configure log sources or upload log documentation.",
+                "source": "system"
+            }, {
+                "timestamp": datetime.now().isoformat(),
+                "level": "INFO",
+                "message": f"📋 Supported sources: CloudWatch, EC2, Docker, Kubernetes, PM2, File",
+                "source": "system"
+            }]
+        
         result["source_used"] = "none"
-        result["message"] = "No log sources configured for this application"
-        result["hint"] = "Admin can configure logs in app settings or upload log documentation"
+        if not result.get("message"):
+            result["message"] = "No logs available"
 
     # Filter by level
     if level != "all":
@@ -1116,9 +1141,11 @@ async def api_app_logs(
 
 @app.get("/api/apps/{app_name}/logs/stream")
 async def api_app_logs_stream(app_name: str, request: Request):
-    """Stream application logs in real-time via SSE."""
+    """Stream application logs in real-time via SSE.
+
+    Fetches real logs from configured sources. Shows error message if source is unavailable.
+    """
     from devops_cli.commands.admin import load_apps_config
-    import random
 
     config = load_apps_config()
     apps = config.get("apps", {})
@@ -1126,34 +1153,141 @@ async def api_app_logs_stream(app_name: str, request: Request):
     if app_name not in apps:
         raise HTTPException(status_code=404, detail="App not found")
 
+    app_config = apps[app_name]
+    logs_config = app_config.get("logs", {})
+    log_type = logs_config.get("type", "none")
+    log_group = app_config.get("log_group")  # CloudWatch log group
+    region = app_config.get("region", "us-east-1")
+
     async def log_generator():
-        log_messages = [
-            ("INFO", "Request processed successfully"),
-            ("INFO", "Health check passed"),
-            ("DEBUG", "Cache hit for key: user_session"),
-            ("INFO", "Database query completed in 45ms"),
-            ("WARN", "High memory usage detected: 78%"),
-            ("INFO", "New connection established"),
-            ("DEBUG", "Processing batch job"),
-            ("INFO", "API response sent: 200 OK"),
-            ("ERROR", "Connection timeout, retrying..."),
-            ("INFO", "Retry successful"),
-        ]
+        # Send initial status message
+        status_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "level": "INFO",
+            "message": f"[{app_name}] Connecting to log source...",
+            "source": "system"
+        }
+        yield f"data: {json.dumps(status_entry)}\n\n"
 
-        while True:
-            if await request.is_disconnected():
-                break
+        # Check if CloudWatch log group is configured
+        if log_group:
+            try:
+                import boto3
+                from botocore.exceptions import ClientError, NoCredentialsError
 
-            level, message = random.choice(log_messages)
-            log_entry = {
+                client = boto3.client('logs', region_name=region)
+                last_token = None
+
+                while True:
+                    if await request.is_disconnected():
+                        break
+
+                    try:
+                        # Get log streams
+                        streams_response = client.describe_log_streams(
+                            logGroupName=log_group,
+                            orderBy='LastEventTime',
+                            descending=True,
+                            limit=3
+                        )
+
+                        for stream in streams_response.get('logStreams', []):
+                            params = {
+                                'logGroupName': log_group,
+                                'logStreamName': stream['logStreamName'],
+                                'limit': 10,
+                                'startFromHead': False
+                            }
+
+                            events_response = client.get_log_events(**params)
+
+                            for event in events_response.get('events', []):
+                                message = event.get('message', '')
+                                level = 'INFO'
+                                if 'ERROR' in message.upper():
+                                    level = 'ERROR'
+                                elif 'WARN' in message.upper():
+                                    level = 'WARN'
+                                elif 'DEBUG' in message.upper():
+                                    level = 'DEBUG'
+
+                                log_entry = {
+                                    "timestamp": datetime.fromtimestamp(event['timestamp'] / 1000).isoformat(),
+                                    "level": level,
+                                    "message": f"[{app_name}] {message}",
+                                    "source": stream['logStreamName']
+                                }
+                                yield f"data: {json.dumps(log_entry)}\n\n"
+
+                        await asyncio.sleep(5)  # Poll every 5 seconds
+
+                    except ClientError as e:
+                        error_entry = {
+                            "timestamp": datetime.now().isoformat(),
+                            "level": "ERROR",
+                            "message": f"[{app_name}] CloudWatch error: {e.response.get('Error', {}).get('Message', str(e))}",
+                            "source": "system"
+                        }
+                        yield f"data: {json.dumps(error_entry)}\n\n"
+                        await asyncio.sleep(10)
+
+            except NoCredentialsError:
+                error_entry = {
+                    "timestamp": datetime.now().isoformat(),
+                    "level": "ERROR",
+                    "message": f"[{app_name}] AWS credentials not configured. Run 'devops admin aws configure' to set up access.",
+                    "source": "system"
+                }
+                yield f"data: {json.dumps(error_entry)}\n\n"
+
+            except ImportError:
+                error_entry = {
+                    "timestamp": datetime.now().isoformat(),
+                    "level": "ERROR",
+                    "message": f"[{app_name}] boto3 not installed. Run 'pip install boto3' for AWS log streaming.",
+                    "source": "system"
+                }
+                yield f"data: {json.dumps(error_entry)}\n\n"
+
+        else:
+            # No log source configured - show helpful message instead of random logs
+            no_logs_entry = {
                 "timestamp": datetime.now().isoformat(),
-                "level": level,
-                "message": f"[{app_name}] {message}",
-                "source": app_name
+                "level": "INFO",
+                "message": f"[{app_name}] No real-time log source configured.",
+                "source": "system"
             }
+            yield f"data: {json.dumps(no_logs_entry)}\n\n"
 
-            yield f"data: {json.dumps(log_entry)}\n\n"
-            await asyncio.sleep(random.uniform(1, 3))
+            hint_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "level": "INFO",
+                "message": f"[{app_name}] Admin: Configure 'log_group' in apps.yaml for CloudWatch streaming.",
+                "source": "system"
+            }
+            yield f"data: {json.dumps(hint_entry)}\n\n"
+
+            supported_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "level": "INFO",
+                "message": f"[{app_name}] Supported: CloudWatch (ECS/Lambda), EC2 SSM, Docker logs",
+                "source": "system"
+            }
+            yield f"data: {json.dumps(supported_entry)}\n\n"
+
+            # Keep connection alive with periodic status updates
+            while True:
+                if await request.is_disconnected():
+                    break
+
+                status_entry = {
+                    "timestamp": datetime.now().isoformat(),
+                    "level": "INFO",
+                    "message": f"[{app_name}] Waiting for log source configuration...",
+                    "source": "system"
+                }
+                yield f"data: {json.dumps(status_entry)}\n\n"
+                await asyncio.sleep(30)
 
     return StreamingResponse(
         log_generator(),
@@ -1475,13 +1609,9 @@ async def api_download_document(
 # ==================== GitHub API ====================
 
 def get_github_config():
-    """Load GitHub config from teams.yaml."""
-    import yaml
-    teams_file = Path.home() / ".devops-cli" / "teams.yaml"
-    if teams_file.exists():
-        with open(teams_file) as f:
-            return yaml.safe_load(f) or {}
-    return {}
+    """Load GitHub config from global settings."""
+    from devops_cli.config.settings import load_config
+    return load_config()
 
 def can_access_repo(repo_name: str, team_repos: list) -> bool:
     """Check if team can access repo."""
@@ -1502,11 +1632,14 @@ async def api_github_repos(user: dict = Depends(require_auth)):
     token = github_config.get("token", "")
 
     if not org:
-        return {"error": "GitHub organization not configured", "repos": [], "hint": "Admin: Configure github.org in teams.yaml"}
+        return {"error": "GitHub organization not configured", "repos": [], "hint": "Admin: Configure github.org in config.yaml or via 'devops init'"}
 
     # Get user's team and allowed repos
+    # We still need teams.yaml for team permissions
+    from devops_cli.commands.admin import load_teams_config
+    teams_config = load_teams_config()
     user_team = get_user_team(user["email"])
-    teams = config.get("teams", {})
+    teams = teams_config.get("teams", {})
     team_config = teams.get(user_team, teams.get("default", {}))
     allowed_repos = team_config.get("repos", ["*"])
 
@@ -1576,20 +1709,25 @@ async def api_github_repos(user: dict = Depends(require_auth)):
 @app.get("/api/github/config")
 async def api_github_config(user: dict = Depends(require_admin)):
     """Get GitHub configuration (admin only)."""
+    from devops_cli.commands.admin import load_teams_config
+    
     config = get_github_config()
+    teams_config = load_teams_config()
+    
     return {
         "org": config.get("github", {}).get("org", ""),
         "has_token": bool(config.get("github", {}).get("token")),
-        "teams": {k: {"name": v.get("name", k), "repos": v.get("repos", [])} for k, v in config.get("teams", {}).items()}
+        "teams": {k: {"name": v.get("name", k), "repos": v.get("repos", [])} for k, v in teams_config.get("teams", {}).items()}
     }
 
 @app.post("/api/github/config")
 async def api_update_github_config(request: Request, user: dict = Depends(require_admin)):
     """Update GitHub configuration (admin only)."""
-    import yaml
+    from devops_cli.config.settings import save_config
+    
     data = await request.json()
-
     config = get_github_config()
+    
     if "github" not in config:
         config["github"] = {}
 
@@ -1598,9 +1736,7 @@ async def api_update_github_config(request: Request, user: dict = Depends(requir
     if "token" in data:
         config["github"]["token"] = data["token"]
 
-    teams_file = Path.home() / ".devops-cli" / "teams.yaml"
-    with open(teams_file, "w") as f:
-        yaml.dump(config, f, default_flow_style=False)
+    save_config(config)
 
     return {"success": True, "message": "GitHub configuration updated"}
 
@@ -1625,12 +1761,15 @@ async def api_config_status(user: dict = Depends(require_auth)):
 
         users = auth.list_users()
 
+        # websites_config is already the websites dict (not wrapped)
+        websites_count = len(websites_config) if isinstance(websites_config, dict) else 0
+
         return {
             "initialized": ADMIN_CONFIG_DIR.exists(),
             "organization": aws_config.get("organization", "Not set"),
             "apps_count": len(apps_config.get("apps", {})),
             "servers_count": len(servers_config.get("servers", {})),
-            "websites_count": len(websites_config.get("websites", {})),
+            "websites_count": websites_count,
             "aws_roles_count": len(aws_config.get("roles", {})),
             "teams_count": len(teams_config.get("teams", {})),
             "users_count": len(users)
