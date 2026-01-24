@@ -478,38 +478,43 @@ async def api_app_health(app_name: str, user: dict = Depends(require_auth)):
         raise HTTPException(status_code=404, detail="App not found")
 
     app = apps[app_name]
-    health_config = app.get("health", {})
+    # Support both "health_check" and "health" keys for backwards compatibility
+    health_config = app.get("health_check", app.get("health", {}))
 
     if not health_config:
         return {"status": "unknown", "message": "No health check configured"}
 
-    if health_config.get("type") == "http":
-        url = health_config.get("url")
-        expected_status = health_config.get("expected_status", 200)
+    # Get URL - works with or without "type" field
+    url = health_config.get("url")
+    if not url:
+        return {"status": "unknown", "message": "No health check URL configured"}
 
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                start = datetime.now()
-                response = await client.get(url)
-                elapsed = (datetime.now() - start).total_seconds() * 1000
+    expected_status = health_config.get("expected_status", 200)
+    timeout = health_config.get("timeout", 10)
 
-                if response.status_code == expected_status:
-                    return {
-                        "status": "healthy",
-                        "response_time": round(elapsed, 2),
-                        "status_code": response.status_code
-                    }
-                else:
-                    return {
-                        "status": "unhealthy",
-                        "response_time": round(elapsed, 2),
-                        "status_code": response.status_code,
-                        "expected": expected_status
-                    }
-        except Exception as e:
-            return {"status": "unhealthy", "error": str(e)}
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            start = datetime.now()
+            response = await client.get(url)
+            elapsed = (datetime.now() - start).total_seconds() * 1000
 
-    return {"status": "unknown", "message": "Unsupported health check type"}
+            if response.status_code == expected_status:
+                return {
+                    "status": "healthy",
+                    "response_time": round(elapsed, 2),
+                    "status_code": response.status_code,
+                    "url": url
+                }
+            else:
+                return {
+                    "status": "unhealthy",
+                    "response_time": round(elapsed, 2),
+                    "status_code": response.status_code,
+                    "expected": expected_status,
+                    "url": url
+                }
+    except Exception as e:
+        return {"status": "unhealthy", "error": str(e), "url": url}
 
 
 # ==================== Servers API ====================

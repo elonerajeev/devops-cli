@@ -550,6 +550,9 @@
                                     <button onclick="refreshLogs()" class="px-3 py-1 bg-gray-700 rounded-lg border border-gray-600 text-sm hover:bg-gray-600">
                                         <i class="fas fa-sync-alt"></i>
                                     </button>
+                                    <button onclick="expandLogViewer()" class="px-3 py-1 bg-emerald-600 rounded-lg border border-emerald-500 text-sm hover:bg-emerald-700" title="Expand logs">
+                                        <i class="fas fa-expand-alt mr-1"></i> Expand
+                                    </button>
                                 </div>
                             </div>
                             <div id="log-viewer" class="bg-gray-900 rounded-xl p-4 h-96 overflow-y-auto font-mono text-sm">
@@ -558,6 +561,68 @@
                         </div>
                     </div>
                 </section>
+
+                <!-- Expanded Log Viewer Modal -->
+                <div id="expanded-log-modal" class="fixed inset-0 bg-black/90 z-50 hidden flex flex-col">
+                    <!-- Modal Header -->
+                    <div class="flex items-center justify-between p-4 bg-gray-800 border-b border-gray-700">
+                        <div class="flex items-center space-x-4">
+                            <i class="fas fa-scroll text-emerald-500 text-xl"></i>
+                            <h2 id="expanded-log-title" class="text-xl font-semibold">Log Viewer</h2>
+                            <span id="expanded-log-source" class="px-3 py-1 bg-gray-700 rounded-full text-sm text-gray-300"></span>
+                        </div>
+                        <div class="flex items-center space-x-3">
+                            <select id="expandedLogLevelFilter" onchange="filterExpandedLogs()" class="px-3 py-2 bg-gray-700 rounded-lg border border-gray-600 text-sm">
+                                <option value="all">All Levels</option>
+                                <option value="error">Error</option>
+                                <option value="warn">Warning</option>
+                                <option value="info">Info</option>
+                                <option value="debug">Debug</option>
+                            </select>
+                            <button onclick="toggleExpandedLiveLogs()" id="expandedLiveLogBtn" class="px-4 py-2 bg-gray-700 rounded-lg border border-gray-600 text-sm hover:bg-gray-600">
+                                <i class="fas fa-play mr-1"></i> Live Stream
+                            </button>
+                            <button onclick="refreshExpandedLogs()" class="px-4 py-2 bg-gray-700 rounded-lg border border-gray-600 text-sm hover:bg-gray-600">
+                                <i class="fas fa-sync-alt mr-1"></i> Refresh
+                            </button>
+                            <button onclick="downloadLogs()" class="px-4 py-2 bg-blue-600 rounded-lg text-sm hover:bg-blue-700">
+                                <i class="fas fa-download mr-1"></i> Download
+                            </button>
+                            <button onclick="closeExpandedLogViewer()" class="px-4 py-2 bg-red-600 rounded-lg text-sm hover:bg-red-700">
+                                <i class="fas fa-times mr-1"></i> Close
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Log Stats Bar -->
+                    <div class="flex items-center space-x-6 px-4 py-2 bg-gray-800/50 border-b border-gray-700 text-sm">
+                        <span class="text-gray-400">Total: <span id="expanded-log-count" class="text-white font-medium">0</span> entries</span>
+                        <span class="text-gray-400">Errors: <span id="expanded-error-count" class="text-red-400 font-medium">0</span></span>
+                        <span class="text-gray-400">Warnings: <span id="expanded-warn-count" class="text-yellow-400 font-medium">0</span></span>
+                        <span class="text-gray-400">Info: <span id="expanded-info-count" class="text-blue-400 font-medium">0</span></span>
+                        <div class="flex-1"></div>
+                        <span id="expanded-live-indicator" class="hidden px-3 py-1 bg-red-600 rounded-full text-xs animate-pulse">
+                            <i class="fas fa-circle mr-1"></i> LIVE
+                        </span>
+                    </div>
+
+                    <!-- Log Content -->
+                    <div id="expanded-log-viewer" class="flex-1 bg-gray-900 p-4 overflow-y-auto font-mono text-sm">
+                        <p class="text-gray-500">No logs loaded</p>
+                    </div>
+
+                    <!-- Search Bar -->
+                    <div class="flex items-center space-x-4 p-4 bg-gray-800 border-t border-gray-700">
+                        <div class="flex-1 relative">
+                            <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500"></i>
+                            <input type="text" id="expanded-log-search" onkeyup="searchExpandedLogs()" placeholder="Search logs..." class="w-full pl-10 pr-4 py-2 bg-gray-700 rounded-lg border border-gray-600 text-sm focus:outline-none focus:border-emerald-500">
+                        </div>
+                        <label class="flex items-center space-x-2 text-sm text-gray-400">
+                            <input type="checkbox" id="expanded-auto-scroll" checked class="rounded bg-gray-700 border-gray-600">
+                            <span>Auto-scroll</span>
+                        </label>
+                    </div>
+                </div>
 
                 <!-- Activity Section -->
                 <section id="section-activity" class="section hidden">
@@ -1477,6 +1542,209 @@
                 toggleLiveLogs(); // Stop on error
             };
         }
+
+        // ==================== Expanded Log Viewer ====================
+        let expandedLiveEventSource = null;
+        let expandedLogs = [];
+
+        function expandLogViewer() {
+            const modal = document.getElementById('expanded-log-modal');
+            const title = document.getElementById('expanded-log-title');
+            const source = document.getElementById('expanded-log-source');
+
+            if (!currentLogSource) {
+                alert('Please select a log source first');
+                return;
+            }
+
+            // Set title and source
+            title.textContent = `Logs: ${currentLogSource.name}`;
+            source.textContent = currentLogSource.type === 'app' ? 'Application' : 'Server';
+
+            // Copy current logs to expanded view
+            expandedLogs = [...currentLogs];
+            renderExpandedLogs(expandedLogs);
+
+            // Sync filter
+            document.getElementById('expandedLogLevelFilter').value = document.getElementById('logLevelFilter').value;
+
+            // Show modal
+            modal.classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeExpandedLogViewer() {
+            const modal = document.getElementById('expanded-log-modal');
+            modal.classList.add('hidden');
+            document.body.style.overflow = 'auto';
+
+            // Stop live stream if active
+            if (expandedLiveEventSource) {
+                expandedLiveEventSource.close();
+                expandedLiveEventSource = null;
+                document.getElementById('expandedLiveLogBtn').innerHTML = '<i class="fas fa-play mr-1"></i> Live Stream';
+                document.getElementById('expanded-live-indicator').classList.add('hidden');
+            }
+        }
+
+        function renderExpandedLogs(logs) {
+            const viewer = document.getElementById('expanded-log-viewer');
+            const autoScroll = document.getElementById('expanded-auto-scroll').checked;
+
+            // Update counts
+            document.getElementById('expanded-log-count').textContent = logs.length;
+            document.getElementById('expanded-error-count').textContent = logs.filter(l => l.level === 'ERROR').length;
+            document.getElementById('expanded-warn-count').textContent = logs.filter(l => l.level === 'WARN').length;
+            document.getElementById('expanded-info-count').textContent = logs.filter(l => l.level === 'INFO').length;
+
+            if (logs.length > 0) {
+                viewer.innerHTML = logs.map((log, index) => `
+                    <div class="flex items-start space-x-3 py-2 border-b border-gray-800/50 hover:bg-gray-800/30 log-entry" data-index="${index}">
+                        <span class="text-gray-600 text-xs w-8">${index + 1}</span>
+                        <span class="text-gray-500 text-xs whitespace-nowrap w-24">${new Date(log.timestamp).toLocaleTimeString()}</span>
+                        <span class="px-2 py-0.5 rounded text-xs font-medium w-16 text-center ${
+                            log.level === 'ERROR' ? 'bg-red-500/20 text-red-400' :
+                            log.level === 'WARN' ? 'bg-yellow-500/20 text-yellow-400' :
+                            log.level === 'INFO' ? 'bg-green-500/20 text-green-400' :
+                            log.level === 'DEBUG' ? 'bg-blue-500/20 text-blue-400' :
+                            'bg-gray-600/20 text-gray-400'
+                        }">${log.level}</span>
+                        <span class="text-gray-400 text-xs w-32 truncate">${log.source || '-'}</span>
+                        <span class="text-gray-200 flex-1 break-all">${escapeHtml(log.message)}</span>
+                    </div>
+                `).join('');
+
+                if (autoScroll) {
+                    viewer.scrollTop = viewer.scrollHeight;
+                }
+            } else {
+                viewer.innerHTML = '<p class="text-gray-500 text-center py-8">No logs to display</p>';
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function filterExpandedLogs() {
+            const level = document.getElementById('expandedLogLevelFilter').value;
+            if (level === 'all') {
+                renderExpandedLogs(expandedLogs);
+            } else {
+                const filtered = expandedLogs.filter(l => l.level.toLowerCase() === level);
+                renderExpandedLogs(filtered);
+            }
+        }
+
+        function searchExpandedLogs() {
+            const query = document.getElementById('expanded-log-search').value.toLowerCase();
+            const level = document.getElementById('expandedLogLevelFilter').value;
+
+            let filtered = expandedLogs;
+
+            if (level !== 'all') {
+                filtered = filtered.filter(l => l.level.toLowerCase() === level);
+            }
+
+            if (query) {
+                filtered = filtered.filter(l =>
+                    l.message.toLowerCase().includes(query) ||
+                    (l.source && l.source.toLowerCase().includes(query))
+                );
+            }
+
+            renderExpandedLogs(filtered);
+        }
+
+        async function refreshExpandedLogs() {
+            if (!currentLogSource) return;
+
+            try {
+                let response;
+                if (currentLogSource.type === 'app') {
+                    response = await fetch(`/api/apps/${currentLogSource.name}/logs`);
+                } else {
+                    response = await fetch(`/api/servers/${currentLogSource.name}/logs`);
+                }
+                const data = await response.json();
+                expandedLogs = data.logs || [];
+                filterExpandedLogs();
+            } catch (error) {
+                console.error('Error refreshing expanded logs:', error);
+            }
+        }
+
+        function toggleExpandedLiveLogs() {
+            const btn = document.getElementById('expandedLiveLogBtn');
+            const indicator = document.getElementById('expanded-live-indicator');
+
+            if (expandedLiveEventSource) {
+                expandedLiveEventSource.close();
+                expandedLiveEventSource = null;
+                btn.innerHTML = '<i class="fas fa-play mr-1"></i> Live Stream';
+                btn.classList.remove('bg-red-600');
+                btn.classList.add('bg-gray-700');
+                indicator.classList.add('hidden');
+                return;
+            }
+
+            if (!currentLogSource || currentLogSource.type !== 'app') {
+                alert('Live streaming is only available for applications');
+                return;
+            }
+
+            btn.innerHTML = '<i class="fas fa-stop mr-1"></i> Stop';
+            btn.classList.remove('bg-gray-700');
+            btn.classList.add('bg-red-600');
+            indicator.classList.remove('hidden');
+
+            expandedLiveEventSource = new EventSource(`/api/apps/${currentLogSource.name}/logs/stream`);
+
+            expandedLiveEventSource.onmessage = (event) => {
+                try {
+                    const log = JSON.parse(event.data);
+                    expandedLogs.push(log);
+                    if (expandedLogs.length > 500) expandedLogs.shift();
+                    filterExpandedLogs();
+                } catch (e) {
+                    console.error('Expanded live log parse error:', e);
+                }
+            };
+
+            expandedLiveEventSource.onerror = () => {
+                toggleExpandedLiveLogs();
+            };
+        }
+
+        function downloadLogs() {
+            if (expandedLogs.length === 0) {
+                alert('No logs to download');
+                return;
+            }
+
+            const content = expandedLogs.map(l =>
+                `[${l.timestamp}] [${l.level}] [${l.source || '-'}] ${l.message}`
+            ).join('\n');
+
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `logs-${currentLogSource.name}-${new Date().toISOString().slice(0,10)}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // Close expanded view on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !document.getElementById('expanded-log-modal').classList.contains('hidden')) {
+                closeExpandedLogViewer();
+            }
+        });
 
         // ==================== Activity ====================
         async function loadActivity() {
