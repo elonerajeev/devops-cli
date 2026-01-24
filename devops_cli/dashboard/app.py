@@ -1017,6 +1017,15 @@ async def api_app_logs(
 
     app_config = apps[app_name]
     logs_config = app_config.get("logs", {})
+    
+    # Backwards compatibility for flat config structure
+    if not logs_config and app_config.get("log_group"):
+        logs_config = {
+            "type": "cloudwatch",
+            "log_group": app_config.get("log_group"),
+            "region": app_config.get("region", "us-east-1")
+        }
+        
     log_type = logs_config.get("type", "none")
 
     result = {
