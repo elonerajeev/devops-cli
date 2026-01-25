@@ -1,0 +1,91 @@
+# Teams Configuration Template
+# =====================================
+# Define teams for access control to apps, servers, and websites.
+#
+# Usage:
+#   1. Copy this file and fill in your actual values
+#   2. Run: devops admin import --file teams.yaml
+#
+
+organization: YourCompany
+
+teams:
+  # Default team - all users start here
+  default:
+    name: Default Team
+    description: Default team with basic access
+    apps:
+      - "*"  # Access to all apps (or list specific apps)
+    servers:
+      - "*"  # Access to all servers (or list specific servers)
+    websites:
+      - "*"  # Access to all websites
+
+  # DevOps/Platform Team - full access
+  devops:
+    name: DevOps Team
+    description: Platform and infrastructure team with full access
+    apps:
+      - "*"
+    servers:
+      - "*"
+    websites:
+      - "*"
+
+  # Backend Development Team
+  backend:
+    name: Backend Team
+    description: Backend developers
+    apps:
+      - api-backend
+      - image-processor
+      - worker-service
+    servers:
+      - web-prod-1
+      - web-prod-2
+      - staging-1
+    websites:
+      - api-health
+      - api-authenticated
+
+  # Frontend Development Team
+  frontend:
+    name: Frontend Team
+    description: Frontend developers
+    apps:
+      - web-server
+      - cdn-service
+    servers:
+      - staging-1  # Only staging access
+    websites:
+      - main-website
+      - dashboard
+
+  # QA Team
+  qa:
+    name: QA Team
+    description: Quality assurance team
+    apps:
+      - "*"  # Can view all apps for testing
+    servers:
+      - staging-1  # Only staging server access
+    websites:
+      - staging-site
+      - main-website
+
+  # Read-Only Team (for monitoring dashboards)
+  readonly:
+    name: Read-Only Team
+    description: Read-only access for monitoring
+    apps:
+      - "*"
+    servers: []  # No server access
+    websites:
+      - "*"
+
+# Notes:
+# - Use "*" for access to all resources of that type
+# - Use specific names for restricted access
+# - Use empty list [] for no access
+# - Teams are assigned to users during registration
+# - Apps, servers, websites reference names from their respective configs

@@ -1,0 +1,93 @@
+# Servers Configuration Template
+# =====================================
+# Define your servers for SSH access and remote commands.
+#
+# Usage:
+#   1. Copy this file and fill in your actual values
+#   2. Run: devops admin import --file servers.yaml
+#
+# SECRETS HANDLING:
+#   For SSH keys and sensitive values:
+#     key: ~/.ssh/id_rsa                    - Local file path
+#     key: ${ENV_VAR_NAME}                  - From environment variable
+#     key: ${AWS_SECRET:ssh-keys/prod}      - From AWS Secrets Manager
+#     key: ${GITHUB_SECRET:SSH_PRIVATE_KEY} - From GitHub Secrets (CI/CD)
+#
+#   For passwords (if using password auth):
+#     password: ${AWS_SECRET:server-passwords/web-1}
+#
+
+organization: YourCompany
+
+servers:
+  # Production Web Server
+  web-prod-1:
+    host: 192.168.1.100
+    user: deploy
+    port: 22
+    key: ~/.ssh/id_rsa_prod
+    tags:
+      - web
+      - production
+    teams:
+      - devops
+      - backend
+
+  # Production Web Server 2
+  web-prod-2:
+    host: 192.168.1.101
+    user: deploy
+    port: 22
+    key: ~/.ssh/id_rsa_prod
+    tags:
+      - web
+      - production
+    teams:
+      - devops
+      - backend
+
+  # Database Server (restricted access)
+  db-prod:
+    host: 192.168.1.200
+    user: dbadmin
+    port: 22
+    key: ${AWS_SECRET:ssh-keys/db-prod}  # Sensitive - from Secrets Manager
+    tags:
+      - database
+      - production
+    teams:
+      - devops  # Only devops team can access
+
+  # Staging Server
+  staging-1:
+    host: staging.example.com
+    user: deploy
+    port: 22
+    key: ~/.ssh/id_rsa_staging
+    tags:
+      - staging
+      - all-access
+    teams:
+      - devops
+      - backend
+      - frontend
+
+  # Jump/Bastion Host
+  bastion:
+    host: bastion.example.com
+    user: jump
+    port: 2222
+    key: ~/.ssh/id_rsa_bastion
+    tags:
+      - bastion
+      - security
+    teams:
+      - devops
+
+# Notes:
+# - host: IP address or hostname
+# - user: SSH username
+# - port: SSH port (default 22)
+# - key: Path to SSH private key (supports secrets references)
+# - tags: Used for grouping and filtering servers
+# - teams: List of teams that can access this server
