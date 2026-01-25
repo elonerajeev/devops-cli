@@ -1,0 +1,104 @@
+# Users Configuration Template
+# =====================================
+# Bulk register users for the DevOps CLI.
+#
+# Usage:
+#   1. Fill in your users below
+#   2. Run: devops admin users-import --file users.yaml
+#   3. Securely distribute tokens to each user
+#
+# IMPORTANT:
+#   - Tokens are generated during import and shown ONLY ONCE
+#   - Share tokens securely (encrypted email, password manager, etc.)
+#   - Users cannot be imported again if they already exist
+#
+# SECRETS HANDLING:
+#   User data is not sensitive, but generated tokens are!
+#   Store/distribute tokens using:
+#     - AWS Secrets Manager: aws secretsmanager put-secret-value
+#     - 1Password, LastPass, or similar
+#     - Encrypted email
+#
+
+users:
+  # Admin Users
+  - email: admin@company.com
+    name: Admin User
+    role: admin
+    team: devops
+
+  - email: platform-lead@company.com
+    name: Platform Lead
+    role: admin
+    team: devops
+
+  # DevOps Team
+  - email: devops1@company.com
+    name: DevOps Engineer 1
+    role: developer
+    team: devops
+
+  - email: devops2@company.com
+    name: DevOps Engineer 2
+    role: developer
+    team: devops
+
+  # Backend Team
+  - email: backend-lead@company.com
+    name: Backend Lead
+    role: developer
+    team: backend
+
+  - email: backend-dev1@company.com
+    name: Backend Developer 1
+    role: developer
+    team: backend
+
+  - email: backend-dev2@company.com
+    name: Backend Developer 2
+    role: developer
+    team: backend
+
+  # Frontend Team
+  - email: frontend-lead@company.com
+    name: Frontend Lead
+    role: developer
+    team: frontend
+
+  - email: frontend-dev1@company.com
+    name: Frontend Developer 1
+    role: developer
+    team: frontend
+
+  # QA Team
+  - email: qa-lead@company.com
+    name: QA Lead
+    role: developer
+    team: qa
+
+  - email: qa-engineer@company.com
+    name: QA Engineer
+    role: developer
+    team: qa
+
+# Notes:
+# - email: Required - Must be unique, valid email format
+# - name: Optional - Display name for the user
+# - role: Required - 'admin' or 'developer'
+#   - admin: Can access all admin commands
+#   - developer: Can only use non-admin commands
+# - team: Optional - Team name (defaults to 'default')
+#   - Must match a team defined in teams config
+#   - Determines what resources user can access
+
+# Roles Explained:
+#   admin:
+#     - Full access to all CLI commands
+#     - Can manage apps, servers, users, etc.
+#     - Can view all logs and resources
+#
+#   developer:
+#     - Can view logs for assigned team's apps
+#     - Can SSH to assigned team's servers
+#     - Cannot modify configurations
+#     - Cannot manage other users

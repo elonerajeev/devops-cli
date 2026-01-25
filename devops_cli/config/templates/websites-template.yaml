@@ -1,0 +1,98 @@
+# Websites Configuration Template
+# =====================================
+# Define websites/endpoints for health monitoring.
+#
+# Usage:
+#   1. Copy this file and fill in your actual values
+#   2. Run: devops admin import --file websites.yaml
+#
+# SECRETS HANDLING:
+#   For authenticated endpoints:
+#     headers:
+#       Authorization: Bearer ${AWS_SECRET:api-tokens/monitoring}
+#       X-API-Key: ${ENV_VAR_NAME}
+#
+
+organization: YourCompany
+
+websites:
+  # Main Website
+  main-website:
+    name: main-website
+    url: https://www.example.com
+    expected_status: 200
+    method: GET
+    timeout: 10
+    enabled: true
+    teams:
+      - frontend
+      - devops
+
+  # API Health Endpoint
+  api-health:
+    name: api-health
+    url: https://api.example.com/health
+    expected_status: 200
+    method: GET
+    timeout: 5
+    enabled: true
+    teams:
+      - backend
+      - devops
+
+  # API with Authentication
+  api-authenticated:
+    name: api-authenticated
+    url: https://api.example.com/v1/status
+    expected_status: 200
+    method: GET
+    timeout: 10
+    headers:
+      Authorization: Bearer ${AWS_SECRET:api-tokens/health-check}
+      Content-Type: application/json
+    enabled: true
+    teams:
+      - backend
+
+  # Dashboard
+  dashboard:
+    name: dashboard
+    url: https://dashboard.example.com
+    expected_status: 200
+    method: GET
+    timeout: 15
+    enabled: true
+    teams:
+      - default
+
+  # Staging Environment
+  staging-site:
+    name: staging-site
+    url: https://staging.example.com
+    expected_status: 200
+    method: GET
+    timeout: 10
+    enabled: true
+    teams:
+      - devops
+      - qa
+
+  # External Dependency Check
+  external-api:
+    name: external-api
+    url: https://external-service.com/api/health
+    expected_status: 200
+    method: HEAD
+    timeout: 30
+    enabled: true
+    teams:
+      - devops
+
+# Notes:
+# - url: Full URL to check
+# - expected_status: HTTP status code to expect (200, 201, 204, etc.)
+# - method: GET, POST, HEAD
+# - timeout: Seconds to wait before timeout
+# - headers: Optional HTTP headers (supports secrets references)
+# - enabled: true/false to enable/disable monitoring
+# - teams: List of teams that can view this website's status

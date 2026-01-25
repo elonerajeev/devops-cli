@@ -1,0 +1,102 @@
+# Repositories Configuration Template
+# =====================================
+# Define GitHub repositories for CI/CD monitoring, pipeline history, and PR management.
+#
+# Features for Developers:
+#   - View current commit ID and message
+#   - See CI/CD pipeline run history
+#   - Check workflow status (running, failed, success)
+#   - View failure messages and details
+#   - List and create pull requests
+#
+# Usage:
+#   1. Copy this file and fill in your actual values
+#   2. Run: devops admin import --file repos.yaml
+#
+# Developer Commands:
+#   devops git repos                        - List all repos
+#   devops git repos --commits              - Show latest commit for each repo
+#   devops git repo-info --repo backend     - Show full repo details
+#   devops git pipeline --repo backend      - View CI/CD history
+#   devops git prs --repo backend           - List pull requests
+#
+# NOTE: GitHub token should be configured separately via:
+#   devops init (or set GITHUB_TOKEN environment variable)
+#
+# SECRETS HANDLING:
+#   GitHub token (configure separately, not in this file):
+#     export GITHUB_TOKEN=${AWS_SECRET:github/token}
+#     export GITHUB_TOKEN=${GITHUB_SECRET:GH_TOKEN}
+#
+
+repos:
+  # Backend API Repository
+  backend:
+    owner: your-org
+    repo: backend-api
+    description: Backend API Service
+    default_branch: main
+    visibility: private
+    private: true
+    language: Python
+
+  # Frontend Web Repository
+  frontend:
+    owner: your-org
+    repo: frontend-web
+    description: Frontend Web Application
+    default_branch: main
+    visibility: private
+    private: true
+    language: TypeScript
+
+  # Infrastructure Repository
+  infrastructure:
+    owner: your-org
+    repo: infrastructure
+    description: Terraform and Infrastructure Code
+    default_branch: main
+    visibility: private
+    private: true
+    language: HCL
+
+  # Shared Libraries
+  shared-libs:
+    owner: your-org
+    repo: shared-libraries
+    description: Shared utility libraries
+    default_branch: main
+    visibility: private
+    private: true
+    language: Python
+
+  # Documentation
+  docs:
+    owner: your-org
+    repo: documentation
+    description: Project documentation
+    default_branch: main
+    visibility: public
+    private: false
+    language: Markdown
+
+  # Mobile App (different org)
+  mobile-app:
+    owner: mobile-team
+    repo: mobile-app
+    description: Mobile Application
+    default_branch: develop
+    visibility: private
+    private: true
+    language: Kotlin
+
+# Notes:
+# - owner: GitHub organization or username
+# - repo: Repository name
+# - description: Human-readable description
+# - default_branch: main, master, develop, etc.
+# - visibility: public, private, internal
+# - language: Primary programming language
+#
+# Auto-discovery alternative:
+#   devops admin repo-discover --source org --name your-org
