@@ -45,10 +45,9 @@ class LogConfigSchema(BaseModel):
 
 class AppConfigSchema(BaseModel):
     name: str
-    type: str # ecs, lambda, kubernetes, docker, custom
+    type: str # lambda, kubernetes, docker, custom
     description: Optional[str] = None
     added_at: str
-    ecs: Optional[Dict[str, Any]] = None
     lambda_config: Optional[Dict[str, Any]] = Field(None, alias="lambda") # Use alias for "lambda" keyword
     kubernetes: Optional[Dict[str, Any]] = None
     docker: Optional[Dict[str, Any]] = None

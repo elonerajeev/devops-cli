@@ -16,33 +16,8 @@
                 "logs:StopQuery"
             ],
             "Resource": [
-                "arn:aws:logs:*:*:log-group:/ecs/*",
-                "arn:aws:logs:*:*:log-group:/aws/ec2/*",
-                "arn:aws:logs:*:*:log-group:*zinai*",
-                "arn:aws:logs:*:*:log-group:*zintellix*"
+                "arn:aws:logs:*:*:log-group:*"
             ]
-        },
-        {
-            "Sid": "ECSReadOnly",
-            "Effect": "Allow",
-            "Action": [
-                "ecs:DescribeServices",
-                "ecs:DescribeTasks",
-                "ecs:DescribeTaskDefinition",
-                "ecs:ListTasks",
-                "ecs:ListServices",
-                "ecs:ListClusters"
-            ],
-            "Resource": "*"
-        },
-        {
-            "Sid": "EC2ReadOnly",
-            "Effect": "Allow",
-            "Action": [
-                "ec2:DescribeInstances",
-                "ec2:DescribeTags"
-            ],
-            "Resource": "*"
         },
         {
             "Sid": "CloudTrailReadOnly",

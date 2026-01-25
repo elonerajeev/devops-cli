@@ -1,4 +1,4 @@
-"""AWS Logs - CloudWatch, ECS, and EC2 log viewing for developers."""
+"""AWS Logs - CloudWatch log viewing for developers."""
 
 import sys
 import time
@@ -22,8 +22,9 @@ from devops_cli.utils.output import (
     create_table, status_badge, console as out_console
 )
 
-app = typer.Typer(help="AWS Logs - View CloudWatch, ECS, and EC2 logs securely")
+app = typer.Typer(help="AWS Logs - View CloudWatch logs securely")
 console = Console()
+
 
 # Try to import boto3
 try:
@@ -344,155 +345,6 @@ def list_log_streams(
             size_str = f"{size / 1024:.1f} KB" if size > 0 else "-"
 
             table.add_row(name, last_event, size_str)
-
-        console.print(table)
-
-    except ClientError as e:
-        error(f"AWS Error: {e.response['Error']['Message']}")
-
-
-# ==================== ECS Commands ====================
-
-@app.command("ecs")
-def ecs_logs(
-    service: str = typer.Argument(..., help="ECS service name or task ID"),
-    cluster: Optional[str] = typer.Option(None, "--cluster", "-c", help="ECS cluster name"),
-    since: str = typer.Option("1h", "--since", help="Time range"),
-    grep: Optional[str] = typer.Option(None, "--grep", "-g", help="Filter pattern"),
-    follow: bool = typer.Option(False, "--follow", "-F", help="Follow logs"),
-    
-    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
-):
-    """View ECS service/task logs from CloudWatch."""
-    session = get_aws_session(region)
-    ecs_client = session.client('ecs')
-    logs_client = session.client('logs')
-
-    config = load_config()
-    aws_config = config.get("aws", {})
-
-    # Get cluster from config if not provided
-    if not cluster:
-        cluster = aws_config.get("ecs_cluster")
-        if not cluster:
-            error("ECS cluster not specified. Use --cluster or configure aws.ecs_cluster")
-            return
-
-    header(f"ECS Logs: {service}")
-    info(f"Cluster: {cluster}")
-
-    try:
-        # Get service details to find log configuration
-        response = ecs_client.describe_services(
-            cluster=cluster,
-            services=[service]
-        )
-
-        if not response["services"]:
-            error(f"Service '{service}' not found in cluster '{cluster}'")
-            return
-
-        svc = response["services"][0]
-        task_def_arn = svc["taskDefinition"]
-
-        # Get task definition to find log group
-        task_def = ecs_client.describe_task_definition(taskDefinition=task_def_arn)
-        container_defs = task_def["taskDefinition"]["containerDefinitions"]
-
-        # Find log configuration
-        log_group = None
-        for container in container_defs:
-            log_config = container.get("logConfiguration", {})
-            if log_config.get("logDriver") == "awslogs":
-                log_group = log_config["options"].get("awslogs-group")
-                stream_prefix = log_config["options"].get("awslogs-stream-prefix", "")
-                break
-
-        if not log_group:
-            error("No CloudWatch log configuration found for this service")
-            return
-
-        info(f"Log Group: {log_group}")
-        console.print()
-
-        # Now fetch logs from CloudWatch
-        start_time = parse_time_range(since)
-        start_timestamp = int(start_time.timestamp() * 1000)
-
-        if follow:
-            _follow_cloudwatch_logs(logs_client, log_group, None, None, grep, start_timestamp)
-        else:
-            _fetch_cloudwatch_logs(logs_client, log_group, None, None, grep, start_timestamp, 200)
-
-    except ClientError as e:
-        error(f"AWS Error: {e.response['Error']['Message']}")
-
-
-@app.command("ecs-tasks")
-def list_ecs_tasks(
-    service: str = typer.Argument(..., help="ECS service name"),
-    cluster: Optional[str] = typer.Option(None, "--cluster", "-c", help="ECS cluster"),
-    
-    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
-):
-    """List running ECS tasks for a service."""
-    session = get_aws_session(region)
-    ecs_client = session.client('ecs')
-
-    config = load_config()
-    cluster = cluster or config.get("aws", {}).get("ecs_cluster")
-
-    if not cluster:
-        error("ECS cluster not specified")
-        return
-
-    header(f"ECS Tasks: {service}")
-
-    try:
-        # List tasks
-        tasks_response = ecs_client.list_tasks(
-            cluster=cluster,
-            serviceName=service,
-            desiredStatus="RUNNING"
-        )
-
-        task_arns = tasks_response.get("taskArns", [])
-        if not task_arns:
-            warning("No running tasks found")
-            return
-
-        # Describe tasks
-        tasks = ecs_client.describe_tasks(
-            cluster=cluster,
-            tasks=task_arns
-        )
-
-        table = create_table(
-            "",
-            [("Task ID", "cyan"), ("Status", ""), ("Health", ""), ("Started", "dim"), ("CPU/Memory", "dim")]
-        )
-
-        for task in tasks["tasks"]:
-            task_id = task["taskArn"].split("/")[-1][:12]
-            status = task["lastStatus"]
-            health = task.get("healthStatus", "UNKNOWN")
-
-            started = task.get("startedAt")
-            if started:
-                started = started.strftime("%Y-%m-%d %H:%M")
-            else:
-                started = "-"
-
-            cpu = task.get("cpu", "-")
-            memory = task.get("memory", "-")
-
-            table.add_row(
-                task_id,
-                status_badge(status.lower()),
-                status_badge(health.lower()),
-                started,
-                f"{cpu} / {memory}"
-            )
 
         console.print(table)
 

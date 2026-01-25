@@ -610,8 +610,8 @@ def add_app():
     app_name = Prompt.ask("Application name (e.g., api, backend, worker)")
     app_type = Prompt.ask(
         "Application type",
-        choices=["ecs", "lambda", "kubernetes", "docker", "custom"],
-        default="ecs"
+        choices=["lambda", "kubernetes", "docker", "custom"],
+        default="custom"
     )
     description = Prompt.ask("Description", default=f"{app_name} application")
 
@@ -625,18 +625,7 @@ def add_app():
     }
 
     # Type-specific configuration
-    if app_type == "ecs":
-        app_config["ecs"] = {
-            "cluster": Prompt.ask("ECS Cluster name"),
-            "service": Prompt.ask("ECS Service name", default=app_name),
-            "region": Prompt.ask("AWS Region", default="us-east-1"),
-        }
-        app_config["logs"] = {
-            "type": "cloudwatch",
-            "log_group": Prompt.ask("CloudWatch Log Group", default=f"/ecs/{app_name}"),
-        }
-
-    elif app_type == "lambda":
+    if app_type == "lambda":
         app_config["lambda"] = {
             "function_name": Prompt.ask("Lambda Function name", default=app_name),
             "region": Prompt.ask("AWS Region", default="us-east-1"),

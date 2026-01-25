@@ -211,14 +211,7 @@ def app_info(
     # Type-specific info
     app_type = app_config.get("type")
 
-    if app_type == "ecs":
-        ecs = app_config.get("ecs", {})
-        console.print("[bold cyan]ECS Configuration:[/]")
-        console.print(f"  Cluster: {ecs.get('cluster', '-')}")
-        console.print(f"  Service: {ecs.get('service', '-')}")
-        console.print(f"  Region: {ecs.get('region', '-')}")
-
-    elif app_type == "lambda":
+    if app_type == "lambda":
         lam = app_config.get("lambda", {})
         console.print("[bold cyan]Lambda Configuration:[/]")
         console.print(f"  Function: {lam.get('function_name', '-')}")
@@ -325,9 +318,7 @@ def _view_cloudwatch_logs(app_config: dict, logs_config: dict, since: str, follo
     # Get region
     region = logs_config.get("region")
     if not region:
-        if app_config.get("ecs"):
-            region = app_config["ecs"].get("region")
-        elif app_config.get("lambda"):
+        if app_config.get("lambda"):
             region = app_config["lambda"].get("region")
 
     # Get AWS session
