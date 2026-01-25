@@ -922,17 +922,27 @@ async def fetch_cloudwatch_logs(log_group: str, region: str, lines: int = 100) -
 
 
 async def fetch_ec2_logs(instance_id: str, region: str, log_path: str = "/var/log/syslog") -> dict:
-    """Fetch logs from EC2 instance via SSM."""
+    """Fetch logs from EC2 instance via SSM with security validation."""
+    # SECURITY: Validate log_path to prevent command injection
+    import re
+    if not re.match(r'^[a-zA-Z0-9/_.\-]+$', log_path):
+        return {"success": False, "error": "Invalid log path characters", "hint": "Path allows only: a-z 0-9 / _ . -"}
+    if ".." in log_path:
+        return {"success": False, "error": "Path traversal detected", "hint": "Do not use '..' in path"}
+    if not log_path.startswith("/"):
+        return {"success": False, "error": "Absolute path required", "hint": "Path must start with /"}
+
     try:
         import boto3
         from botocore.exceptions import ClientError, NoCredentialsError
 
         ssm_client = boto3.client('ssm', region_name=region)
 
+        # SECURITY: Use 'commands' list safely, though we validated inputs above
         response = ssm_client.send_command(
             InstanceIds=[instance_id],
             DocumentName='AWS-RunShellScript',
-            Parameters={'commands': [f'tail -100 {log_path}']}
+            Parameters={'commands': [f'tail -n 100 {log_path}']}
         )
 
         command_id = response['Command']['CommandId']
