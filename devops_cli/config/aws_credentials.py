@@ -7,12 +7,10 @@ No dependency on ~/.aws/credentials or AWS CLI installation.
 
 import json
 import os
-import stat
 import tempfile
 from pathlib import Path
 from typing import Optional, Dict, Tuple
 from cryptography.fernet import Fernet
-
 
 ADMIN_DIR = Path.home() / ".devops-cli"
 AWS_CREDS_FILE = ADMIN_DIR / ".aws_credentials.enc"
@@ -30,7 +28,7 @@ def _secure_write_file(filepath: Path, data: bytes, mode: int = 0o600) -> None:
     filepath.parent.mkdir(parents=True, exist_ok=True)
 
     # Create temp file in same directory (ensures same filesystem for rename)
-    fd, temp_path = tempfile.mkstemp(dir=filepath.parent, prefix='.tmp_')
+    fd, temp_path = tempfile.mkstemp(dir=filepath.parent, prefix=".tmp_")
     try:
         # Set permissions before writing data
         os.fchmod(fd, mode)
@@ -53,7 +51,7 @@ def _get_or_create_encryption_key() -> bytes:
     ADMIN_DIR.mkdir(parents=True, mode=0o700, exist_ok=True)
 
     if AWS_KEY_FILE.exists():
-        with open(AWS_KEY_FILE, 'rb') as f:
+        with open(AWS_KEY_FILE, "rb") as f:
             return f.read()
 
     # Generate new key and write securely
@@ -66,7 +64,7 @@ def save_aws_credentials(
     access_key: str,
     secret_key: str,
     region: str,
-    description: str = "DevOps CLI AWS Credentials"
+    description: str = "DevOps CLI AWS Credentials",
 ) -> bool:
     """
     Save AWS credentials securely (encrypted).
@@ -91,7 +89,7 @@ def save_aws_credentials(
             "access_key": access_key,
             "secret_key": secret_key,
             "region": region,
-            "description": description
+            "description": description,
         }
 
         encrypted_data = fernet.encrypt(json.dumps(credentials).encode())
@@ -132,7 +130,9 @@ def load_aws_credentials() -> Optional[Dict[str, str]]:
         return None
 
 
-def validate_aws_credentials(access_key: str, secret_key: str, region: str) -> Tuple[bool, Optional[str]]:
+def validate_aws_credentials(
+    access_key: str, secret_key: str, region: str
+) -> Tuple[bool, Optional[str]]:
     """
     Validate AWS credentials by making a test API call.
 
@@ -147,21 +147,24 @@ def validate_aws_credentials(access_key: str, secret_key: str, region: str) -> T
         session = boto3.Session(
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
-            region_name=region
+            region_name=region,
         )
 
         # Test with STS GetCallerIdentity (always allowed)
-        sts = session.client('sts')
+        sts = session.client("sts")
         identity = sts.get_caller_identity()
 
         # Test CloudWatch Logs access
-        logs = session.client('logs')
+        logs = session.client("logs")
         try:
             logs.describe_log_groups(limit=1)
         except ClientError as e:
-            error_code = e.response['Error']['Code']
-            if error_code == 'AccessDeniedException':
-                return False, "Credentials lack CloudWatch Logs permissions. Need: logs:DescribeLogGroups, logs:FilterLogEvents"
+            error_code = e.response["Error"]["Code"]
+            if error_code == "AccessDeniedException":
+                return (
+                    False,
+                    "Credentials lack CloudWatch Logs permissions. Need: logs:DescribeLogGroups, logs:FilterLogEvents",
+                )
             else:
                 return False, f"AWS Error: {e.response['Error']['Message']}"
 
@@ -213,7 +216,7 @@ def get_credentials_info() -> Optional[Dict[str, str]]:
     return {
         "region": creds.get("region", "unknown"),
         "description": creds.get("description", ""),
-        "access_key_preview": masked_key
+        "access_key_preview": masked_key,
     }
 
 
@@ -242,5 +245,5 @@ def import_from_dict(credentials: Dict[str, str]) -> bool:
         access_key=credentials["access_key"],
         secret_key=credentials["secret_key"],
         region=credentials["region"],
-        description=credentials.get("description", "Imported credentials")
+        description=credentials.get("description", "Imported credentials"),
     )

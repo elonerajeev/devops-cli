@@ -23,7 +23,7 @@ A comprehensive guide for Cloud Engineers (Admins) and Developers to set up and 
 ### What is DevOps CLI?
 
 A unified command-line tool for managing:
-- Application logs (CloudWatch, Docker, Kubernetes)
+- Application logs (CloudWatch)
 - SSH server connections
 - AWS resources with IAM role assumption
 - Real-time monitoring dashboard
@@ -96,7 +96,7 @@ A unified command-line tool for managing:
 
 | Command | Purpose | Example |
 |---------|---------|---------|
-| `devops admin app-add` | Add new application (interactive) | ECS, EC2, Lambda, Docker, K8s |
+| `devops admin app-add` | Add new application (interactive) | Lambda, Kubernetes, Docker, Custom |
 | `devops admin app-list` | List all configured apps | Shows type, log source |
 | `devops admin app-show <name>` | View app configuration details | Full YAML config |
 | `devops admin app-edit <name>` | Edit app config in editor | Opens in $EDITOR |
@@ -520,7 +520,6 @@ devops app logs backend-api
 │    - logs:DescribeLogGroups                                     │
 │    - logs:FilterLogEvents                                       │
 │    - logs:GetLogEvents                                          │
-│    - ec2:DescribeInstances (optional)                           │
 │                                                                 │
 │  ✗ NEVER use root credentials                                   │
 │  ✗ NEVER use admin/full-access credentials                      │

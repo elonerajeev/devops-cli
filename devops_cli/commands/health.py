@@ -4,27 +4,31 @@ import socket
 import subprocess
 import time
 import concurrent.futures
-from typing import Optional, Any
-from urllib.parse import urlparse
+from typing import Optional
 
 import typer
 import requests
 from rich.console import Console
-from rich.live import Live
 from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from devops_cli.config.settings import load_config
 from devops_cli.utils.output import (
-    success, error, warning, info, header,
-    create_table, status_badge, console as out_console
+    success,
+    error,
+    warning,
+    info,
+    header,
+    create_table,
+    status_badge,
 )
 
 app = typer.Typer(help="Health checks for services")
 console = Console()
 
 
-def check_http(url: str, method: str = "GET", expected_status: int = 200, timeout: int = 10) -> dict:
+def check_http(
+    url: str, method: str = "GET", expected_status: int = 200, timeout: int = 10
+) -> dict:
     """Check HTTP endpoint health."""
     start = time.time()
     try:
@@ -36,7 +40,11 @@ def check_http(url: str, method: str = "GET", expected_status: int = 200, timeou
             "healthy": is_healthy,
             "status_code": resp.status_code,
             "latency_ms": round(latency, 2),
-            "message": "OK" if is_healthy else f"Expected {expected_status}, got {resp.status_code}"
+            "message": (
+                "OK"
+                if is_healthy
+                else f"Expected {expected_status}, got {resp.status_code}"
+            ),
         }
     except requests.Timeout:
         return {"healthy": False, "message": "Timeout", "latency_ms": timeout * 1000}
@@ -57,7 +65,11 @@ def check_tcp(host: str, port: int, timeout: int = 5) -> dict:
         latency = (time.time() - start) * 1000
 
         if result == 0:
-            return {"healthy": True, "latency_ms": round(latency, 2), "message": "Port open"}
+            return {
+                "healthy": True,
+                "latency_ms": round(latency, 2),
+                "message": "Port open",
+            }
         else:
             return {"healthy": False, "message": "Port closed"}
     except socket.timeout:
@@ -84,10 +96,7 @@ def check_command(command: str, timeout: int = 30) -> dict:
             return {"healthy": False, "message": "Empty command"}
 
         result = subprocess.run(
-            cmd_list,
-            capture_output=True,
-            text=True,
-            timeout=timeout
+            cmd_list, capture_output=True, text=True, timeout=timeout
         )
         latency = (time.time() - start) * 1000
 
@@ -95,7 +104,11 @@ def check_command(command: str, timeout: int = 30) -> dict:
         return {
             "healthy": is_healthy,
             "latency_ms": round(latency, 2),
-            "message": "OK" if is_healthy else result.stderr[:100] or f"Exit code: {result.returncode}"
+            "message": (
+                "OK"
+                if is_healthy
+                else result.stderr[:100] or f"Exit code: {result.returncode}"
+            ),
         }
     except subprocess.TimeoutExpired:
         return {"healthy": False, "message": "Command timeout"}
@@ -111,10 +124,16 @@ def check_docker_container(container: str) -> dict:
     """Check if a Docker container is running and healthy."""
     try:
         result = subprocess.run(
-            ["docker", "inspect", "--format", "{{.State.Status}}:{{.State.Health.Status}}", container],
+            [
+                "docker",
+                "inspect",
+                "--format",
+                "{{.State.Status}}:{{.State.Health.Status}}",
+                container,
+            ],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
         )
 
         if result.returncode != 0:
@@ -146,13 +165,11 @@ def run_service_check(name: str, config: dict) -> dict:
             url=config["url"],
             method=config.get("method", "GET"),
             expected_status=config.get("expected_status", 200),
-            timeout=config.get("timeout", 10)
+            timeout=config.get("timeout", 10),
         )
     elif check_type == "tcp":
         return check_tcp(
-            host=config["host"],
-            port=config["port"],
-            timeout=config.get("timeout", 5)
+            host=config["host"], port=config["port"], timeout=config.get("timeout", 5)
         )
     elif check_type == "command":
         return check_command(config["command"], timeout=config.get("timeout", 30))
@@ -202,7 +219,7 @@ services:
 
     table = create_table(
         "",
-        [("Service", "cyan"), ("Status", ""), ("Latency", "dim"), ("Details", "dim")]
+        [("Service", "cyan"), ("Status", ""), ("Latency", "dim"), ("Details", "dim")],
     )
 
     all_healthy = True
@@ -222,13 +239,14 @@ services:
                 results[name] = result
 
                 status = "healthy" if result["healthy"] else "unhealthy"
-                latency = f"{result.get('latency_ms', '-')} ms" if result.get("latency_ms") else "-"
+                latency = (
+                    f"{result.get('latency_ms', '-')} ms"
+                    if result.get("latency_ms")
+                    else "-"
+                )
 
                 table.add_row(
-                    name,
-                    status_badge(status),
-                    latency,
-                    result.get("message", "")[:40]
+                    name, status_badge(status), latency, result.get("message", "")[:40]
                 )
 
                 if not result["healthy"]:
@@ -295,7 +313,9 @@ def check_port(
 
 @app.command("docker")
 def check_docker_services(
-    all_containers: bool = typer.Option(False, "--all", "-a", help="Show all containers"),
+    all_containers: bool = typer.Option(
+        False, "--all", "-a", help="Show all containers"
+    ),
 ):
     """Check Docker container health status."""
     try:
@@ -317,8 +337,7 @@ def check_docker_services(
         header("Docker Containers")
 
         table = create_table(
-            "",
-            [("Container", "cyan"), ("Status", ""), ("Ports", "dim")]
+            "", [("Container", "cyan"), ("Status", ""), ("Ports", "dim")]
         )
 
         for line in lines:
@@ -350,7 +369,9 @@ def check_docker_services(
 
 @app.command("watch")
 def watch_health(
-    interval: int = typer.Option(30, "--interval", "-i", help="Check interval in seconds"),
+    interval: int = typer.Option(
+        30, "--interval", "-i", help="Check interval in seconds"
+    ),
 ):
     """Continuously watch service health (Ctrl+C to stop)."""
     config = load_config()
@@ -376,7 +397,11 @@ def watch_health(
             for name, svc_config in services.items():
                 result = run_service_check(name, svc_config)
                 status = "healthy" if result["healthy"] else "unhealthy"
-                latency = f"{result.get('latency_ms', '-')} ms" if result.get("latency_ms") else "-"
+                latency = (
+                    f"{result.get('latency_ms', '-')} ms"
+                    if result.get("latency_ms")
+                    else "-"
+                )
                 table.add_row(name, status_badge(status), latency, current_time)
 
             console.clear()

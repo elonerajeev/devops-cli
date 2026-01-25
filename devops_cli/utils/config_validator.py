@@ -5,7 +5,7 @@ guiding users to set things up properly.
 """
 
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 from dataclasses import dataclass
 from enum import Enum
 import yaml
@@ -13,6 +13,7 @@ import yaml
 
 class ConfigStatus(Enum):
     """Configuration status levels."""
+
     NOT_INITIALIZED = "not_initialized"
     PARTIALLY_CONFIGURED = "partially_configured"
     CONFIGURED = "configured"
@@ -21,6 +22,7 @@ class ConfigStatus(Enum):
 @dataclass
 class ConfigCheck:
     """Result of a configuration check."""
+
     status: ConfigStatus
     message: str
     hint: str
@@ -47,55 +49,55 @@ class ConfigValidator:
             "title": "CLI Not Initialized",
             "message": "DevOps CLI has not been set up for your organization yet.",
             "hint": "Ask your Cloud Engineer/Admin to run: devops admin init",
-            "icon": "🔧"
+            "icon": "🔧",
         },
         "no_users": {
             "title": "No Users Registered",
             "message": "No users have been registered in the system.",
             "hint": "Ask your Admin to register you: devops admin user-add --email your@email.com",
-            "icon": "👤"
+            "icon": "👤",
         },
         "no_apps": {
             "title": "No Applications Configured",
             "message": "No applications have been added to monitor.",
             "hint": "Ask your Admin to add apps: devops admin app-add",
-            "icon": "📦"
+            "icon": "📦",
         },
         "no_servers": {
             "title": "No Servers Configured",
             "message": "No SSH servers have been configured.",
             "hint": "Ask your Admin to add servers: devops admin server-add",
-            "icon": "🖥️"
+            "icon": "🖥️",
         },
         "no_aws_roles": {
             "title": "No AWS Roles Configured",
             "message": "No AWS IAM roles have been set up for log access.",
             "hint": "Ask your Admin to configure AWS: devops admin aws-add-role",
-            "icon": "☁️"
+            "icon": "☁️",
         },
         "no_monitoring": {
             "title": "No Monitoring Resources",
             "message": "No websites, apps, or servers configured for monitoring.",
             "hint": "Add resources: devops monitor add-website/add-app/add-server",
-            "icon": "📊"
+            "icon": "📊",
         },
         "not_authenticated": {
             "title": "Not Logged In",
             "message": "You need to log in to use this feature.",
             "hint": "Run: devops auth login",
-            "icon": "🔐"
+            "icon": "🔐",
         },
         "app_not_found": {
             "title": "Application Not Found",
             "message": "The requested application doesn't exist or you don't have access.",
             "hint": "Run 'devops app list' to see available applications.",
-            "icon": "❓"
+            "icon": "❓",
         },
         "server_not_found": {
             "title": "Server Not Found",
             "message": "The requested server doesn't exist or you don't have access.",
             "hint": "Run 'devops ssh list' to see available servers.",
-            "icon": "❓"
+            "icon": "❓",
         },
     }
 
@@ -103,9 +105,7 @@ class ConfigValidator:
     def is_initialized(cls) -> bool:
         """Check if CLI has been initialized."""
         return CONFIG_DIR.exists() and (
-            APPS_CONFIG.exists() or
-            AWS_CONFIG.exists() or
-            SERVERS_CONFIG.exists()
+            APPS_CONFIG.exists() or AWS_CONFIG.exists() or SERVERS_CONFIG.exists()
         )
 
     @classmethod
@@ -115,6 +115,7 @@ class ConfigValidator:
             return False
         try:
             import json
+
             users = json.loads(USERS_FILE.read_text())
             return len(users) > 0
         except:
@@ -227,6 +228,7 @@ class ConfigValidator:
         try:
             if USERS_FILE.exists():
                 import json
+
                 users = json.loads(USERS_FILE.read_text())
                 summary["counts"]["users"] = len(users)
         except:
@@ -256,7 +258,11 @@ class ConfigValidator:
         try:
             if MONITORING_CONFIG.exists():
                 config = yaml.safe_load(MONITORING_CONFIG.read_text()) or {}
-                total = len(config.get("websites", [])) + len(config.get("apps", [])) + len(config.get("servers", []))
+                total = (
+                    len(config.get("websites", []))
+                    + len(config.get("apps", []))
+                    + len(config.get("servers", []))
+                )
                 summary["counts"]["monitoring_resources"] = total
         except:
             pass
@@ -273,25 +279,30 @@ def print_not_configured(key: str, console=None):
     if console is None:
         console = Console()
 
-    msg = ConfigValidator.MESSAGES.get(key, {
-        "title": "Not Configured",
-        "message": "This feature hasn't been set up yet.",
-        "hint": "Contact your administrator.",
-        "icon": "⚠️"
-    })
+    msg = ConfigValidator.MESSAGES.get(
+        key,
+        {
+            "title": "Not Configured",
+            "message": "This feature hasn't been set up yet.",
+            "hint": "Contact your administrator.",
+            "icon": "⚠️",
+        },
+    )
 
     content = f"""[yellow]{msg['message']}[/yellow]
 
 [dim]💡 {msg['hint']}[/dim]"""
 
     console.print()
-    console.print(Panel(
-        content,
-        title=f"[bold]{msg['icon']} {msg['title']}[/bold]",
-        border_style="yellow",
-        box=box.ROUNDED,
-        padding=(1, 2)
-    ))
+    console.print(
+        Panel(
+            content,
+            title=f"[bold]{msg['icon']} {msg['title']}[/bold]",
+            border_style="yellow",
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )
     console.print()
 
 
@@ -305,6 +316,7 @@ def require_initialized(func):
             print_not_configured("cli_not_initialized")
             raise SystemExit(0)
         return func(*args, **kwargs)
+
     return wrapper
 
 
@@ -318,6 +330,7 @@ def require_apps_configured(func):
             print_not_configured("no_apps")
             raise SystemExit(0)
         return func(*args, **kwargs)
+
     return wrapper
 
 
@@ -331,6 +344,7 @@ def require_servers_configured(func):
             print_not_configured("no_servers")
             raise SystemExit(0)
         return func(*args, **kwargs)
+
     return wrapper
 
 
@@ -344,4 +358,5 @@ def require_aws_configured(func):
             print_not_configured("no_aws_roles")
             raise SystemExit(0)
         return func(*args, **kwargs)
+
     return wrapper

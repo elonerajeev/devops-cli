@@ -60,6 +60,112 @@ def get_app_config(app_name: str) -> dict | None:
 
 # Removed duplicate function - now using utility (kept for reference):
 # def get_aws_session(role_name: str = None, region: str = None):
+    """Get AWS session, optionally assuming a role."""
+    if not BOTO3_AVAILABLE:
+        error("boto3 is not installed. Run: pip install boto3")
+        raise typer.Exit(1)
+
+    aws_config = load_aws_config()
+
+    if role_name:
+        role_config = aws_config.get("roles", {}).get(role_name)
+        if not role_config:
+            error(f"AWS role '{role_name}' not found")
+            raise typer.Exit(1)
+
+        role_arn = role_config.get("role_arn")
+        region = (
+            region
+            or role_config.get("region")
+            or aws_config.get("default_region", "us-east-1")
+        )
+        external_id = role_config.get("external_id")
+
+        # Check for stored credentials
+        creds_file = SECRETS_DIR / f"aws_{role_name}.creds"
+        if creds_file.exists():
+            import json
+            from devops_cli.config.aws_credentials import _get_or_create_encryption_key
+            from cryptography.fernet import Fernet
+
+            try:
+                key = _get_or_create_encryption_key()
+                fernet = Fernet(key)
+                encrypted = creds_file.read_bytes()
+                decrypted = fernet.decrypt(encrypted)
+                creds_data = json.loads(decrypted.decode())
+
+                # Create session with stored credentials
+                session = boto3.Session(
+                    aws_access_key_id=creds_data["access_key"],
+                    aws_secret_access_key=creds_data["secret_key"],
+                    region_name=region,
+                )
+            except Exception as e:
+                error(f"Failed to load role credentials: {e}")
+                session = boto3.Session(region_name=region)
+        else:
+            # Use default credentials
+            session = boto3.Session(region_name=region)
+
+        # Assume the role
+        sts = session.client("sts")
+        assume_kwargs = {
+            "RoleArn": role_arn,
+            "RoleSessionName": "devops-cli-session",
+            "DurationSeconds": 3600,
+        }
+        if external_id:
+            assume_kwargs["ExternalId"] = external_id
+
+        try:
+            response = sts.assume_role(**assume_kwargs)
+            credentials = response["Credentials"]
+
+            return boto3.Session(
+                aws_access_key_id=credentials["AccessKeyId"],
+                aws_secret_access_key=credentials["SecretAccessKey"],
+                aws_session_token=credentials["SessionToken"],
+                region_name=region,
+            )
+        except ClientError as e:
+            error(f"Failed to assume role: {e}")
+            raise typer.Exit(1)
+    else:
+        region = region or aws_config.get("default_region", "us-east-1")
+        return boto3.Session(region_name=region)
+
+
+def parse_time_range(time_str: str) -> datetime:
+    """Parse time string like '1h', '30m', '2d' to datetime."""
+    now = datetime.utcnow()
+
+    if time_str.endswith("m"):
+        return now - timedelta(minutes=int(time_str[:-1]))
+    elif time_str.endswith("h"):
+        return now - timedelta(hours=int(time_str[:-1]))
+    elif time_str.endswith("d"):
+        return now - timedelta(days=int(time_str[:-1]))
+    else:
+        return now - timedelta(hours=1)
+
+
+def colorize_log_level(message: str) -> Text:
+    """Colorize log message based on level."""
+    text = Text(message)
+
+    if re.search(r"\b(ERROR|FATAL|CRITICAL)\b", message, re.IGNORECASE):
+        text.stylize("bold red")
+    elif re.search(r"\bWARN(ING)?\b", message, re.IGNORECASE):
+        text.stylize("yellow")
+    elif re.search(r"\bINFO\b", message, re.IGNORECASE):
+        text.stylize("green")
+    elif re.search(r"\bDEBUG\b", message, re.IGNORECASE):
+        text.stylize("dim")
+
+    return text
+
+
 # ==================== List Apps ====================
 
 

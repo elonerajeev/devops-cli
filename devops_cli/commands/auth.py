@@ -22,7 +22,9 @@ console = Console()
 @app.command("login")
 def login(
     email: str = typer.Option(None, "--email", "-e", help="Your email address"),
-    token: str = typer.Option(None, "--token", "-t", help="Your access token (hidden input if not provided)"),
+    token: str = typer.Option(
+        None, "--token", "-t", help="Your access token (hidden input if not provided)"
+    ),
 ):
     """Login to DevOps CLI with your credentials.
 
@@ -106,6 +108,7 @@ def status():
 
     if session:
         from datetime import datetime
+
         expires = datetime.fromisoformat(session["expires_at"])
         remaining = expires - datetime.now()
         hours = int(remaining.total_seconds() // 3600)
@@ -136,7 +139,9 @@ def whoami():
     session = auth.get_current_session()
 
     if session:
-        console.print(f"[cyan]{session['email']}[/] ({session.get('role', 'developer')})")
+        console.print(
+            f"[cyan]{session['email']}[/] ({session.get('role', 'developer')})"
+        )
     else:
         error("Not logged in")
 

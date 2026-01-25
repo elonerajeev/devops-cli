@@ -31,18 +31,15 @@
 organization: YourCompany
 
 apps:
-  # ECS Application Example
-  api-backend:
-    name: api-backend
-    type: ecs
-    description: Backend API Service
-    ecs:
-      cluster: production-cluster
-      service: api-backend-service
-      region: ap-south-1
+  # CloudWatch Log Group Example (Custom)
+  api-service:
+    name: api-service
+    type: custom
+    description: Main API Service
     logs:
       type: cloudwatch
-      log_group: /ecs/api-backend
+      log_group: /apps/prod/api-service
+      region: ap-south-1
     health:
       type: http
       url: https://api.example.com/health
@@ -51,25 +48,6 @@ apps:
     teams:
       - backend
       - devops
-
-  # EC2 Application Example
-  web-server:
-    name: web-server
-    type: ec2
-    description: Web Server on EC2
-    ec2:
-      instance_id: i-0123456789abcdef0
-      instance_name: web-server-prod
-      region: ap-south-1
-    logs:
-      type: cloudwatch
-      log_group: /ec2/web-server
-    health:
-      type: http
-      url: https://www.example.com/health
-      expected_status: 200
-    teams:
-      - frontend
 
   # Lambda Function Example
   image-processor:
@@ -85,7 +63,24 @@ apps:
     teams:
       - backend
 
+  # Kubernetes Service Example (via CloudWatch)
+  auth-worker:
+    name: auth-worker
+    type: kubernetes
+    description: Auth Worker in K8s
+    kubernetes:
+      namespace: production
+      deployment: auth-worker
+    logs:
+      type: cloudwatch
+      log_group: /aws/containerinsights/prod-cluster/application
+    health:
+      type: http
+      url: http://auth-worker.prod.svc.cluster.local/health
+    teams:
+      - auth-team
+
 # Supported Types:
-#   type: ecs | ec2 | lambda | kubernetes | docker | custom
-#   logs.type: cloudwatch | file | docker | kubernetes | command
+#   type: lambda | kubernetes | docker | custom
+#   logs.type: cloudwatch
 #   health.type: http | tcp | command | none

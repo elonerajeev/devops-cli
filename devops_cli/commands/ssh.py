@@ -1,8 +1,6 @@
 """SSH commands for server management."""
 
 import subprocess
-import sys
-import os
 import concurrent.futures
 from typing import Optional
 from pathlib import Path
@@ -10,14 +8,17 @@ from pathlib import Path
 import typer
 import paramiko
 from rich.console import Console
-from rich.prompt import Prompt, Confirm
-from rich.live import Live
-from rich.table import Table
+from rich.prompt import Prompt
 
-from devops_cli.config.settings import load_config
+from devops_cli.config.loader import load_servers_config
 from devops_cli.utils.output import (
-    success, error, warning, info, header,
-    create_table, status_badge, console as out_console
+    success,
+    error,
+    warning,
+    info,
+    header,
+    create_table,
+    status_badge,
 )
 
 app = typer.Typer(help="SSH and server management commands")
@@ -26,19 +27,16 @@ console = Console()
 
 def get_server_config(server_name: str) -> dict | None:
     """Get server configuration by name."""
-    config = load_config()
+    config = load_servers_config()
     servers = config.get("servers", {})
     return servers.get(server_name)
 
 
 def get_servers_by_tag(tag: str) -> dict:
     """Get all servers matching a tag."""
-    config = load_config()
+    config = load_servers_config()
     servers = config.get("servers", {})
-    return {
-        name: srv for name, srv in servers.items()
-        if tag in srv.get("tags", [])
-    }
+    return {name: srv for name, srv in servers.items() if tag in srv.get("tags", [])}
 
 
 def create_ssh_client(server_config: dict) -> paramiko.SSHClient:
@@ -85,7 +83,11 @@ def run_remote_command(server_name: str, server_config: dict, command: str) -> d
             "error": err_output,
         }
     except paramiko.AuthenticationException:
-        return {"server": server_name, "success": False, "error": "Authentication failed"}
+        return {
+            "server": server_name,
+            "success": False,
+            "error": "Authentication failed",
+        }
     except paramiko.SSHException as e:
         return {"server": server_name, "success": False, "error": f"SSH error: {e}"}
     except Exception as e:
@@ -97,7 +99,7 @@ def list_servers(
     tag: Optional[str] = typer.Option(None, "--tag", "-t", help="Filter by tag"),
 ):
     """List configured servers."""
-    config = load_config()
+    config = load_servers_config()
     servers = config.get("servers", {})
 
     if not servers:
@@ -122,8 +124,7 @@ servers:
     # Filter by tag if provided
     if tag:
         servers = {
-            name: srv for name, srv in servers.items()
-            if tag in srv.get("tags", [])
+            name: srv for name, srv in servers.items() if tag in srv.get("tags", [])
         }
         if not servers:
             warning(f"No servers found with tag '{tag}'")
@@ -133,7 +134,13 @@ servers:
 
     table = create_table(
         "",
-        [("Name", "cyan"), ("Host", ""), ("User", "dim"), ("Port", "dim"), ("Tags", "yellow")]
+        [
+            ("Name", "cyan"),
+            ("Host", ""),
+            ("User", "dim"),
+            ("Port", "dim"),
+            ("Tags", "yellow"),
+        ],
     )
 
     for name, srv in servers.items():
@@ -142,7 +149,7 @@ servers:
             srv.get("host", ""),
             srv.get("user", "root"),
             str(srv.get("port", 22)),
-            ", ".join(srv.get("tags", []))
+            ", ".join(srv.get("tags", [])),
         )
 
     console.print(table)
@@ -187,8 +194,12 @@ def connect_server(
 def run_command(
     command: str = typer.Argument(..., help="Command to run"),
     server: Optional[str] = typer.Option(None, "--server", "-s", help="Server name"),
-    tag: Optional[str] = typer.Option(None, "--tag", "-t", help="Run on all servers with tag"),
-    parallel: bool = typer.Option(True, "--parallel/--sequential", help="Run in parallel"),
+    tag: Optional[str] = typer.Option(
+        None, "--tag", "-t", help="Run on all servers with tag"
+    ),
+    parallel: bool = typer.Option(
+        True, "--parallel/--sequential", help="Run in parallel"
+    ),
 ):
     """Run a command on remote server(s)."""
     if not server and not tag:
@@ -254,7 +265,9 @@ def _print_result(result: dict):
             for line in result["output"].split("\n")[:20]:
                 console.print(f"  {line}")
             if result["output"].count("\n") > 20:
-                console.print(f"  [dim]... ({result['output'].count(chr(10)) - 20} more lines)[/]")
+                console.print(
+                    f"  [dim]... ({result['output'].count(chr(10)) - 20} more lines)[/]"
+                )
     else:
         console.print(f"[bold red]✗ {server}[/]")
         console.print(f"  [red]{result.get('error', 'Unknown error')}[/]")
@@ -267,7 +280,9 @@ def upload_file(
     local_path: str = typer.Argument(..., help="Local file path"),
     remote_path: str = typer.Argument(..., help="Remote destination path"),
     server: Optional[str] = typer.Option(None, "--server", "-s", help="Server name"),
-    tag: Optional[str] = typer.Option(None, "--tag", "-t", help="Upload to all servers with tag"),
+    tag: Optional[str] = typer.Option(
+        None, "--tag", "-t", help="Upload to all servers with tag"
+    ),
 ):
     """Upload a file to remote server(s)."""
     local_file = Path(local_path).expanduser()
@@ -350,7 +365,7 @@ def ping_servers(
     tag: Optional[str] = typer.Option(None, "--tag", "-t", help="Filter by tag"),
 ):
     """Check connectivity to all configured servers."""
-    config = load_config()
+    config = load_servers_config()
     servers = config.get("servers", {})
 
     if not servers:
@@ -366,8 +381,7 @@ def ping_servers(
     header(f"Pinging {len(servers)} server(s)")
 
     table = create_table(
-        "",
-        [("Server", "cyan"), ("Host", ""), ("Status", ""), ("Message", "dim")]
+        "", [("Server", "cyan"), ("Host", ""), ("Status", ""), ("Message", "dim")]
     )
 
     def check_server(name: str, cfg: dict) -> tuple:
@@ -382,8 +396,7 @@ def ping_servers(
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = [
-            executor.submit(check_server, name, cfg)
-            for name, cfg in servers.items()
+            executor.submit(check_server, name, cfg) for name, cfg in servers.items()
         ]
 
         for future in concurrent.futures.as_completed(futures):
@@ -397,7 +410,9 @@ def ping_servers(
 def exec_script(
     script: str = typer.Argument(..., help="Local script file to execute"),
     server: Optional[str] = typer.Option(None, "--server", "-s", help="Server name"),
-    tag: Optional[str] = typer.Option(None, "--tag", "-t", help="Run on all servers with tag"),
+    tag: Optional[str] = typer.Option(
+        None, "--tag", "-t", help="Run on all servers with tag"
+    ),
 ):
     """Execute a local script on remote server(s)."""
     script_path = Path(script).expanduser()
@@ -451,7 +466,9 @@ def exec_script(
             sftp.close()
 
             # Execute script
-            stdin, stdout, stderr = client.exec_command(f"{interpreter} {remote_script}")
+            stdin, stdout, stderr = client.exec_command(
+                f"{interpreter} {remote_script}"
+            )
             exit_code = stdout.channel.recv_exit_status()
             output = stdout.read().decode().strip()
             err_output = stderr.read().decode().strip()
@@ -480,7 +497,9 @@ def exec_script(
 @app.command("copy-id")
 def copy_ssh_key(
     server: str = typer.Argument(..., help="Server name"),
-    key: str = typer.Option("~/.ssh/id_rsa.pub", "--key", "-k", help="Public key to copy"),
+    key: str = typer.Option(
+        "~/.ssh/id_rsa.pub", "--key", "-k", help="Public key to copy"
+    ),
 ):
     """Copy SSH public key to a server for passwordless login."""
     server_config = get_server_config(server)

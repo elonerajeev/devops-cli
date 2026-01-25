@@ -14,50 +14,82 @@ SECURITY: All admin commands (except init) require admin role authentication.
 
 import os
 import json
-import base64
-import hashlib
 import shutil
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, List
-
-# Templates directory location
-TEMPLATES_DIR = Path(__file__).parent.parent / "config" / "templates"
+from typing import Optional
 
 import typer
 import yaml
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
-from rich.table import Table
 from rich.panel import Panel
 from rich import box
 
-from devops_cli.config.settings import load_config, save_config, get_config_path
+from devops_cli.config.loader import (
+    ADMIN_CONFIG_DIR,
+    AWS_CONFIG_FILE,
+    TEAMS_CONFIG_FILE,
+    SECRETS_DIR,
+    ensure_admin_dirs,
+    load_apps_config,
+    save_apps_config,
+    load_servers_config,
+    save_servers_config,
+    load_aws_config,
+    save_aws_config,
+    load_teams_config,
+    save_teams_config,
+    get_aws_credentials_template,
+    import_aws_credentials_from_yaml,
+    get_aws_roles_template,
+    validate_aws_roles_yaml,
+    load_aws_roles_yaml,
+    get_users_template,
+    validate_users_yaml,
+    load_users_yaml,
+)
+from devops_cli.config.settings import load_config
 from devops_cli.config.repos import (
-    load_repos, save_repos, get_repo_config, add_repo, remove_repo,
-    fetch_repo_from_github, discover_org_repos, discover_user_repos,
-    validate_github_token, validate_repo_name
+    load_repos,
+    save_repos,
+    get_repo_config,
+    add_repo,
+    remove_repo,
+    fetch_repo_from_github,
+    discover_org_repos,
+    discover_user_repos,
+    validate_github_token,
+    validate_repo_name,
 )
 from devops_cli.config.aws_credentials import (
-    save_aws_credentials, load_aws_credentials, delete_aws_credentials,
-    credentials_exist, get_credentials_info, validate_aws_credentials,
-    import_from_dict
-)
-from devops_cli.config.loader import (
-    load_aws_credentials_yaml, validate_aws_credentials_yaml,
-    get_aws_credentials_template, import_aws_credentials_from_yaml,
-    get_aws_roles_template, validate_aws_roles_yaml, load_aws_roles_yaml,
-    get_users_template, validate_users_yaml, load_users_yaml
+    save_aws_credentials,
+    load_aws_credentials,
+    delete_aws_credentials,
+    credentials_exist,
+    get_credentials_info,
+    validate_aws_credentials,
+    import_from_dict,
 )
 from devops_cli.config.websites import (
-    load_websites_config, save_websites_config, get_website_config,
-    add_website as add_website_to_config, remove_website as remove_website_from_config
+    load_websites_config,
+    save_websites_config,
+    get_website_config,
+    add_website as add_website_to_config,
+    remove_website as remove_website_from_config,
 )
 from devops_cli.utils.output import (
-    success, error, warning, info, header,
-    create_table, status_badge, console as out_console
+    success,
+    error,
+    warning,
+    info,
+    header,
+    create_table,
 )
 from devops_cli.auth import AuthManager
+
+# Templates directory location
+TEMPLATES_DIR = Path(__file__).parent.parent / "config" / "templates"
 
 app = typer.Typer(help="Admin commands for Cloud Engineers to configure the CLI")
 console = Console()
@@ -79,13 +111,15 @@ def check_admin_access(ctx: typer.Context):
     # Check if CLI is initialized
     if not ADMIN_CONFIG_DIR.exists():
         console.print()
-        console.print(Panel(
-            "[yellow]CLI not initialized yet.[/yellow]\n\n"
-            "Run [cyan]devops admin init[/cyan] first to set up the CLI.",
-            title="[bold]Setup Required[/bold]",
-            border_style="yellow",
-            box=box.ROUNDED
-        ))
+        console.print(
+            Panel(
+                "[yellow]CLI not initialized yet.[/yellow]\n\n"
+                "Run [cyan]devops admin init[/cyan] first to set up the CLI.",
+                title="[bold]Setup Required[/bold]",
+                border_style="yellow",
+                box=box.ROUNDED,
+            )
+        )
         raise typer.Exit(0)
 
     # Check if any users exist (if not, allow first admin setup)
@@ -96,42 +130,48 @@ def check_admin_access(ctx: typer.Context):
         if command_name == "user-add":
             return
         console.print()
-        console.print(Panel(
-            "[yellow]No admin users registered yet.[/yellow]\n\n"
-            "Create the first admin user:\n"
-            "  [cyan]devops admin user-add --email admin@company.com --role admin[/cyan]",
-            title="[bold]First Admin Setup[/bold]",
-            border_style="yellow",
-            box=box.ROUNDED
-        ))
+        console.print(
+            Panel(
+                "[yellow]No admin users registered yet.[/yellow]\n\n"
+                "Create the first admin user:\n"
+                "  [cyan]devops admin user-add --email admin@company.com --role admin[/cyan]",
+                title="[bold]First Admin Setup[/bold]",
+                border_style="yellow",
+                box=box.ROUNDED,
+            )
+        )
         raise typer.Exit(0)
 
     # Check if current user is authenticated
     session = auth.get_current_session()
     if not session:
         console.print()
-        console.print(Panel(
-            "[red]Authentication required.[/red]\n\n"
-            "Admin commands require you to be logged in.\n\n"
-            "Run: [cyan]devops auth login[/cyan]",
-            title="[bold]🔐 Login Required[/bold]",
-            border_style="red",
-            box=box.ROUNDED
-        ))
+        console.print(
+            Panel(
+                "[red]Authentication required.[/red]\n\n"
+                "Admin commands require you to be logged in.\n\n"
+                "Run: [cyan]devops auth login[/cyan]",
+                title="[bold]🔐 Login Required[/bold]",
+                border_style="red",
+                box=box.ROUNDED,
+            )
+        )
         raise typer.Exit(1)
 
     # Check if user has admin role
     if session.get("role") != "admin":
         console.print()
-        console.print(Panel(
-            f"[red]Access denied.[/red]\n\n"
-            f"You are logged in as: [cyan]{session.get('email')}[/cyan] (role: {session.get('role')})\n\n"
-            "Admin commands require [bold]admin[/bold] role.\n"
-            "Contact your administrator for access.",
-            title="[bold]🚫 Admin Access Required[/bold]",
-            border_style="red",
-            box=box.ROUNDED
-        ))
+        console.print(
+            Panel(
+                f"[red]Access denied.[/red]\n\n"
+                f"You are logged in as: [cyan]{session.get('email')}[/cyan] (role: {session.get('role')})\n\n"
+                "Admin commands require [bold]admin[/bold] role.\n"
+                "Contact your administrator for access.",
+                title="[bold]🚫 Admin Access Required[/bold]",
+                border_style="red",
+                box=box.ROUNDED,
+            )
+        )
         raise typer.Exit(1)
 
 
@@ -141,85 +181,8 @@ def admin_callback(ctx: typer.Context):
     check_admin_access(ctx)
 
 
-# Import centralized config paths (no duplication)
-from devops_cli.config.loader import (
-    ADMIN_CONFIG_DIR, APPS_CONFIG_FILE, SERVERS_CONFIG_FILE,
-    WEBSITES_CONFIG_FILE, AWS_CONFIG_FILE, TEAMS_CONFIG_FILE,
-    SECRETS_DIR, ensure_admin_dirs,
-    load_apps_config, save_apps_config,
-    load_servers_config, save_servers_config,
-    load_aws_config, save_aws_config,
-    load_teams_config, save_teams_config
-)
-
-
-def ensure_admin_dirs():
-    """Ensure admin config directories exist."""
-    ADMIN_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    SECRETS_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def load_apps_config() -> dict:
-    """Load applications configuration."""
-    if APPS_CONFIG_FILE.exists():
-        with open(APPS_CONFIG_FILE) as f:
-            return yaml.safe_load(f) or {"apps": {}}
-    return {"apps": {}}
-
-
-def save_apps_config(config: dict):
-    """Save applications configuration."""
-    ensure_admin_dirs()
-    with open(APPS_CONFIG_FILE, "w") as f:
-        yaml.dump(config, f, default_flow_style=False)
-
-
-def load_servers_config() -> dict:
-    """Load servers configuration."""
-    if SERVERS_CONFIG_FILE.exists():
-        with open(SERVERS_CONFIG_FILE) as f:
-            return yaml.safe_load(f) or {"servers": {}}
-    return {"servers": {}}
-
-
-def save_servers_config(config: dict):
-    """Save servers configuration."""
-    ensure_admin_dirs()
-    with open(SERVERS_CONFIG_FILE, "w") as f:
-        yaml.dump(config, f, default_flow_style=False)
-
-
-def load_aws_config() -> dict:
-    """Load AWS configuration."""
-    if AWS_CONFIG_FILE.exists():
-        with open(AWS_CONFIG_FILE) as f:
-            return yaml.safe_load(f) or {}
-    return {}
-
-
-def save_aws_config(config: dict):
-    """Save AWS configuration."""
-    ensure_admin_dirs()
-    with open(AWS_CONFIG_FILE, "w") as f:
-        yaml.dump(config, f, default_flow_style=False)
-
-
-def load_teams_config() -> dict:
-    """Load teams configuration."""
-    if TEAMS_CONFIG_FILE.exists():
-        with open(TEAMS_CONFIG_FILE) as f:
-            return yaml.safe_load(f) or {"teams": {}}
-    return {"teams": {}}
-
-
-def save_teams_config(config: dict):
-    """Save teams configuration."""
-    ensure_admin_dirs()
-    with open(TEAMS_CONFIG_FILE, "w") as f:
-        yaml.dump(config, f, default_flow_style=False)
-
-
 # ==================== Initialize ====================
+
 
 @app.command("init")
 def admin_init():
@@ -284,13 +247,22 @@ def admin_init():
 
 # ==================== AWS Role Management ====================
 
+
 @app.command("aws-add-role")
 def add_aws_role(
-    name: str = typer.Option(..., "--name", "-n", prompt="Role name (e.g., dev-readonly)", help="Role name"),
-    role_arn: str = typer.Option(..., "--arn", "-a", prompt="IAM Role ARN", help="IAM Role ARN to assume"),
+    name: str = typer.Option(
+        ..., "--name", "-n", prompt="Role name (e.g., dev-readonly)", help="Role name"
+    ),
+    role_arn: str = typer.Option(
+        ..., "--arn", "-a", prompt="IAM Role ARN", help="IAM Role ARN to assume"
+    ),
     region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
-    external_id: Optional[str] = typer.Option(None, "--external-id", help="External ID for role assumption"),
-    description: Optional[str] = typer.Option(None, "--desc", "-d", help="Role description"),
+    external_id: Optional[str] = typer.Option(
+        None, "--external-id", help="External ID for role assumption"
+    ),
+    description: Optional[str] = typer.Option(
+        None, "--desc", "-d", help="Role description"
+    ),
 ):
     """Add an AWS IAM role for accessing resources."""
     config = load_aws_config()
@@ -328,7 +300,7 @@ def list_aws_roles():
 
     table = create_table(
         "",
-        [("Name", "cyan"), ("Region", ""), ("Role ARN", "dim"), ("Description", "dim")]
+        [("Name", "cyan"), ("Region", ""), ("Role ARN", "dim"), ("Description", "dim")],
     )
 
     for name, role in roles.items():
@@ -336,7 +308,7 @@ def list_aws_roles():
             name,
             role.get("region", "-"),
             role.get("role_arn", "-")[:50] + "...",
-            role.get("description", "-")[:30]
+            role.get("description", "-")[:30],
         )
 
     console.print(table)
@@ -364,8 +336,12 @@ def remove_aws_role(
 
 @app.command("aws-roles-import")
 def import_aws_roles(
-    file: str = typer.Option(..., "--file", "-f", help="Path to YAML file with AWS roles"),
-    merge: bool = typer.Option(True, "--merge/--replace", help="Merge with existing or replace all"),
+    file: str = typer.Option(
+        ..., "--file", "-f", help="Path to YAML file with AWS roles"
+    ),
+    merge: bool = typer.Option(
+        True, "--merge/--replace", help="Merge with existing or replace all"
+    ),
 ):
     """Import AWS roles from a YAML file.
 
@@ -389,7 +365,9 @@ def import_aws_roles(
     # Check if file exists
     if not file_path.exists():
         error(f"File not found: {file}")
-        info("Create a template with: devops admin aws-roles-export-template --output aws-roles.yaml")
+        info(
+            "Create a template with: devops admin aws-roles-export-template --output aws-roles.yaml"
+        )
         return
 
     info(f"Loading roles from: {file}")
@@ -454,7 +432,7 @@ def import_aws_roles(
 
     save_aws_config(config)
 
-    success(f"AWS roles imported successfully!")
+    success("AWS roles imported successfully!")
     console.print()
     if imported > 0:
         info(f"  Added: {imported} new roles")
@@ -466,7 +444,9 @@ def import_aws_roles(
 
 @app.command("aws-roles-export-template")
 def export_aws_roles_template(
-    output: str = typer.Option("aws-roles-template.yaml", "--output", "-o", help="Output file path"),
+    output: str = typer.Option(
+        "aws-roles-template.yaml", "--output", "-o", help="Output file path"
+    ),
 ):
     """Export a template YAML file for AWS roles.
 
@@ -509,7 +489,9 @@ def export_aws_roles_template(
 
 @app.command("aws-roles-export")
 def export_aws_roles(
-    output: str = typer.Option("aws-roles.yaml", "--output", "-o", help="Output file path"),
+    output: str = typer.Option(
+        "aws-roles.yaml", "--output", "-o", help="Output file path"
+    ),
 ):
     """Export current AWS roles to a YAML file.
 
@@ -553,7 +535,11 @@ def export_aws_roles(
     try:
         with open(output_path, "w") as f:
             f.write(f"# AWS Roles Export - {datetime.now().isoformat()}\n")
-            f.write("# Re-import with: devops admin aws-roles-import --file " + output + "\n\n")
+            f.write(
+                "# Re-import with: devops admin aws-roles-import --file "
+                + output
+                + "\n\n"
+            )
             yaml.dump(export_data, f, default_flow_style=False, sort_keys=False)
 
         success(f"Exported {len(roles)} roles to: {output}")
@@ -565,14 +551,20 @@ def export_aws_roles(
 @app.command("aws-set-credentials")
 def set_aws_credentials(
     role_name: str = typer.Argument(..., help="Role name to set credentials for"),
-    access_key: Optional[str] = typer.Option(None, "--access-key", "-k", help="AWS Access Key ID"),
-    secret_key: Optional[str] = typer.Option(None, "--secret-key", "-s", help="AWS Secret Access Key"),
+    access_key: Optional[str] = typer.Option(
+        None, "--access-key", "-k", help="AWS Access Key ID"
+    ),
+    secret_key: Optional[str] = typer.Option(
+        None, "--secret-key", "-s", help="AWS Secret Access Key"
+    ),
 ):
     """Set AWS credentials for a role (for cross-account access)."""
     config = load_aws_config()
 
     if role_name not in config.get("roles", {}):
-        error(f"Role '{name}' not found. Add it first with: devops admin aws-add-role")
+        error(
+            f"Role '{role_name}' not found. Add it first with: devops admin aws-add-role"
+        )
         return
 
     if not access_key:
@@ -580,26 +572,35 @@ def set_aws_credentials(
     if not secret_key:
         secret_key = Prompt.ask("AWS Secret Access Key", password=True)
 
-    # Store credentials securely
-    creds_file = SECRETS_DIR / f"aws_{role_name}.creds"
+    # Store credentials securely using project's encryption helper
+    from devops_cli.config.aws_credentials import _get_or_create_encryption_key
+    from cryptography.fernet import Fernet
 
-    # Simple encryption (in production, use proper encryption)
-    creds_data = json.dumps({
-        "access_key": access_key,
-        "secret_key": secret_key,
-        "updated_at": datetime.now().isoformat(),
-    })
+    try:
+        key = _get_or_create_encryption_key()
+        fernet = Fernet(key)
 
-    # Encode
-    encoded = base64.b64encode(creds_data.encode()).decode()
-    creds_file.write_text(encoded)
-    creds_file.chmod(0o600)
+        creds_data = json.dumps(
+            {
+                "access_key": access_key,
+                "secret_key": secret_key,
+                "updated_at": datetime.now().isoformat(),
+            }
+        )
 
-    success(f"Credentials saved for role '{role_name}'")
-    warning("Credentials are stored locally. For production, use IAM roles or AWS SSO.")
+        creds_file = ADMIN_CONFIG_DIR / f".aws_creds_{role_name}.enc"
+        encrypted = fernet.encrypt(creds_data.encode())
+        creds_file.write_bytes(encrypted)
+        creds_file.chmod(0o600)
+
+        success(f"Credentials saved for role '{role_name}'")
+        warning("Credentials are encrypted and stored locally.")
+    except Exception as e:
+        error(f"Failed to save encrypted credentials: {e}")
 
 
 # ==================== Application Management ====================
+
 
 @app.command("app-add")
 def add_app():
@@ -611,7 +612,7 @@ def add_app():
     app_type = Prompt.ask(
         "Application type",
         choices=["lambda", "kubernetes", "docker", "custom"],
-        default="custom"
+        default="custom",
     )
     description = Prompt.ask("Description", default=f"{app_name} application")
 
@@ -632,7 +633,9 @@ def add_app():
         }
         app_config["logs"] = {
             "type": "cloudwatch",
-            "log_group": Prompt.ask("CloudWatch Log Group", default=f"/aws/lambda/{app_name}"),
+            "log_group": Prompt.ask(
+                "CloudWatch Log Group", default=f"/aws/lambda/{app_name}"
+            ),
         }
 
     elif app_type == "kubernetes":
@@ -657,7 +660,7 @@ def add_app():
         }
 
     elif app_type == "custom":
-        log_type = "cloudwatch" # Restricted to cloudwatch as requested
+        log_type = "cloudwatch"  # Restricted to cloudwatch as requested
         app_config["logs"] = {"type": log_type}
         app_config["logs"]["log_group"] = Prompt.ask("CloudWatch Log Group")
         app_config["logs"]["region"] = Prompt.ask("AWS Region", default="us-east-1")
@@ -667,14 +670,16 @@ def add_app():
         health_type = Prompt.ask(
             "Health check type",
             choices=["http", "tcp", "command", "none"],
-            default="http"
+            default="http",
         )
 
         if health_type == "http":
             app_config["health"] = {
                 "type": "http",
                 "url": Prompt.ask("Health check URL"),
-                "expected_status": int(Prompt.ask("Expected status code", default="200")),
+                "expected_status": int(
+                    Prompt.ask("Expected status code", default="200")
+                ),
             }
         elif health_type == "tcp":
             app_config["health"] = {
@@ -695,7 +700,7 @@ def add_app():
         app_config["aws_role"] = Prompt.ask(
             "AWS role for access",
             choices=roles + ["none"],
-            default=roles[0] if roles else "none"
+            default=roles[0] if roles else "none",
         )
         if app_config["aws_role"] == "none":
             del app_config["aws_role"]
@@ -705,8 +710,7 @@ def add_app():
     teams = list(teams_config.get("teams", {}).keys())
     if teams:
         selected_teams = Prompt.ask(
-            "Teams with access (comma-separated)",
-            default="default"
+            "Teams with access (comma-separated)", default="default"
         )
         app_config["teams"] = [t.strip() for t in selected_teams.split(",")]
 
@@ -715,7 +719,7 @@ def add_app():
     save_apps_config(config)
 
     success(f"Application '{app_name}' added!")
-    info(f"\nDevelopers can now use:")
+    info("\nDevelopers can now use:")
     info(f"  devops app logs {app_name}")
     info(f"  devops app logs {app_name} --follow")
     if app_config.get("health"):
@@ -736,8 +740,7 @@ def list_apps():
     header("Configured Applications")
 
     table = create_table(
-        "",
-        [("Name", "cyan"), ("Type", ""), ("Log Source", "dim"), ("Teams", "dim")]
+        "", [("Name", "cyan"), ("Type", ""), ("Log Source", "dim"), ("Teams", "dim")]
     )
 
     for name, app in apps.items():
@@ -804,6 +807,7 @@ def edit_app(
 
     # Write to temp file
     import tempfile
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
         yaml.dump(config["apps"][name], f, default_flow_style=False)
         temp_file = f.name
@@ -826,8 +830,8 @@ def edit_app(
         info("Changes discarded")
 
 
-
 # ==================== Website Management ====================
+
 
 @app.command("website-add")
 def add_website():
@@ -860,15 +864,14 @@ def add_website():
     teams = list(teams_config.get("teams", {}).keys())
     if teams:
         selected_teams = Prompt.ask(
-            "Teams with access (comma-separated)",
-            default="default"
+            "Teams with access (comma-separated)", default="default"
         )
         website_data["teams"] = [t.strip() for t in selected_teams.split(",")]
 
     add_website_to_config(name, url, **website_data)
 
     success(f"Website '{name}' added!")
-    info(f"\nDevelopers can now use:")
+    info("\nDevelopers can now use:")
     info(f"  devops website health {name}")
     info(f"  devops website info {name}")
 
@@ -887,7 +890,13 @@ def list_websites():
 
     table = create_table(
         "",
-        [("Name", "cyan"), ("URL", ""), ("Expected Status", "dim"), ("Method", "dim"), ("Teams", "dim")]
+        [
+            ("Name", "cyan"),
+            ("URL", ""),
+            ("Expected Status", "dim"),
+            ("Method", "dim"),
+            ("Teams", "dim"),
+        ],
     )
 
     for name, website in websites.items():
@@ -897,7 +906,7 @@ def list_websites():
             website.get("url", "-"),
             str(website.get("expected_status", "N/A")),
             website.get("method", "GET"),
-            teams[:20]
+            teams[:20],
         )
 
     console.print(table)
@@ -954,6 +963,7 @@ def edit_website(
 
     # Write to temp file
     import tempfile
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
         yaml.dump(websites[name], f, default_flow_style=False)
         temp_file = f.name
@@ -977,6 +987,7 @@ def edit_website(
 
 
 # ==================== Server Management ====================
+
 
 @app.command("server-add")
 def add_server():
@@ -1008,15 +1019,16 @@ def add_server():
     teams = list(teams_config.get("teams", {}).keys())
     if teams:
         selected_teams = Prompt.ask(
-            "Teams with access (comma-separated)",
-            default="default"
+            "Teams with access (comma-separated)", default="default"
         )
-        config["servers"][name]["teams"] = [t.strip() for t in selected_teams.split(",")]
+        config["servers"][name]["teams"] = [
+            t.strip() for t in selected_teams.split(",")
+        ]
 
     save_servers_config(config)
 
     success(f"Server '{name}' added!")
-    info(f"\nDevelopers can now use:")
+    info("\nDevelopers can now use:")
     info(f"  devops ssh connect {name}")
     info(f"  devops ssh run 'command' --server {name}")
 
@@ -1035,8 +1047,7 @@ def list_servers():
     header("Configured Servers")
 
     table = create_table(
-        "",
-        [("Name", "cyan"), ("Host", ""), ("User", "dim"), ("Tags", "yellow")]
+        "", [("Name", "cyan"), ("Host", ""), ("User", "dim"), ("Tags", "yellow")]
     )
 
     for name, server in servers.items():
@@ -1044,7 +1055,7 @@ def list_servers():
             name,
             server.get("host", "-"),
             server.get("user", "-"),
-            ", ".join(server.get("tags", []))
+            ", ".join(server.get("tags", [])),
         )
 
     console.print(table)
@@ -1128,25 +1139,32 @@ def edit_server(
 
 # ==================== Team Management ====================
 
+
 @app.command("team-add")
 def add_team(
     name: str = typer.Option(..., "--name", "-n", prompt="Team name", help="Team name"),
-    description: Optional[str] = typer.Option(None, "--desc", "-d", help="Team description"),
+    description: Optional[str] = typer.Option(
+        None, "--desc", "-d", help="Team description"
+    ),
 ):
     """Add a new team."""
     config = load_teams_config()
 
     apps_access = Prompt.ask(
-        "Apps access (comma-separated names, or * for all)",
-        default="*"
+        "Apps access (comma-separated names, or * for all)", default="*"
     )
     servers_access = Prompt.ask(
-        "Servers access (comma-separated names/tags, or * for all)",
-        default="*"
+        "Servers access (comma-separated names/tags, or * for all)", default="*"
     )
 
-    apps_list = [a.strip() for a in apps_access.split(",")] if apps_access != "*" else ["*"]
-    servers_list = [s.strip() for s in servers_access.split(",")] if servers_access != "*" else ["*"]
+    apps_list = (
+        [a.strip() for a in apps_access.split(",")] if apps_access != "*" else ["*"]
+    )
+    servers_list = (
+        [s.strip() for s in servers_access.split(",")]
+        if servers_access != "*"
+        else ["*"]
+    )
 
     config["teams"][name] = {
         "name": name,
@@ -1173,8 +1191,7 @@ def list_teams():
     header("Teams")
 
     table = create_table(
-        "",
-        [("Name", "cyan"), ("Apps Access", ""), ("Servers Access", "dim")]
+        "", [("Name", "cyan"), ("Apps Access", ""), ("Servers Access", "dim")]
     )
 
     for name, team in teams.items():
@@ -1266,10 +1283,15 @@ def edit_team(
 
 # ==================== Export/Import ====================
 
+
 @app.command("export")
 def export_config(
-    output: str = typer.Option("devops-config.yaml", "--output", "-o", help="Output file"),
-    include_secrets: bool = typer.Option(False, "--include-secrets", help="Include sensitive data"),
+    output: str = typer.Option(
+        "devops-config.yaml", "--output", "-o", help="Output file"
+    ),
+    include_secrets: bool = typer.Option(
+        False, "--include-secrets", help="Include sensitive data"
+    ),
 ):
     """Export configuration for sharing or backup."""
     config = {
@@ -1299,7 +1321,9 @@ def export_config(
 @app.command("import")
 def import_config(
     input_file: str = typer.Argument(..., help="Config file to import"),
-    merge: bool = typer.Option(True, "--merge/--replace", help="Merge with existing or replace"),
+    merge: bool = typer.Option(
+        True, "--merge/--replace", help="Merge with existing or replace"
+    ),
 ):
     """Import configuration from file."""
     if not Path(input_file).exists():
@@ -1359,6 +1383,7 @@ def import_config(
 
 # ==================== Status ====================
 
+
 @app.command("status")
 def admin_status():
     """Show admin configuration status."""
@@ -1401,8 +1426,7 @@ def admin_status():
         console.print("[yellow]![/] Servers: None configured")
 
     # Websites
-    websites_config = load_websites_config()
-    websites = websites_config.get("websites", {})
+    websites = load_websites_config()
     if websites:
         console.print(f"[green]✓[/] Websites: {len(websites)} configured")
         for name in websites:
@@ -1427,7 +1451,9 @@ def admin_status():
         if users:
             console.print(f"[green]✓[/] Users: {len(users)} registered")
             for u in users:
-                status = "[green]active[/]" if u.get("active", True) else "[red]inactive[/]"
+                status = (
+                    "[green]active[/]" if u.get("active", True) else "[red]inactive[/]"
+                )
                 console.print(f"    - {u['email']} ({status})")
         else:
             console.print("[yellow]![/] Users: None registered")
@@ -1440,13 +1466,24 @@ def admin_status():
 
 # ==================== Templates Management ====================
 
+
 @app.command("templates")
 def manage_templates(
-    list_templates: bool = typer.Option(False, "--list", "-l", help="List available templates"),
-    copy_all: bool = typer.Option(False, "--copy", "-c", help="Copy all templates to current directory"),
-    copy_template: Optional[str] = typer.Option(None, "--copy-template", "-t", help="Copy specific template"),
-    show_path: bool = typer.Option(False, "--path", "-p", help="Show templates directory path"),
-    output_dir: str = typer.Option(".", "--output", "-o", help="Output directory for copied templates"),
+    list_templates: bool = typer.Option(
+        False, "--list", "-l", help="List available templates"
+    ),
+    copy_all: bool = typer.Option(
+        False, "--copy", "-c", help="Copy all templates to current directory"
+    ),
+    copy_template: Optional[str] = typer.Option(
+        None, "--copy-template", "-t", help="Copy specific template"
+    ),
+    show_path: bool = typer.Option(
+        False, "--path", "-p", help="Show templates directory path"
+    ),
+    output_dir: str = typer.Option(
+        ".", "--output", "-o", help="Output directory for copied templates"
+    ),
 ):
     """Manage YAML configuration templates.
 
@@ -1478,24 +1515,31 @@ def manage_templates(
         console.print()
 
         table = create_table(
-            "",
-            [("Template", "cyan"), ("Description", ""), ("Import Command", "dim")]
+            "", [("Template", "cyan"), ("Description", ""), ("Import Command", "dim")]
         )
 
         template_info = {
-            "apps": ("Applications (ECS, EC2, Lambda, etc.)", "devops admin import --file"),
+            "apps": (
+                "Applications (ECS, EC2, Lambda, etc.)",
+                "devops admin import --file",
+            ),
             "servers": ("SSH servers configuration", "devops admin import --file"),
             "websites": ("Website health monitoring", "devops admin import --file"),
             "teams": ("Team access control", "devops admin import --file"),
             "repos": ("GitHub repositories", "devops admin import --file"),
             "aws-roles": ("AWS IAM roles", "devops admin aws-roles-import --file"),
-            "aws-credentials": ("AWS credentials (sensitive!)", "devops admin aws-import --file"),
+            "aws-credentials": (
+                "AWS credentials (sensitive!)",
+                "devops admin aws-import --file",
+            ),
             "users": ("Bulk user registration", "devops admin users-import --file"),
         }
 
         for tf in sorted(template_files):
             name = tf.stem.replace("-template", "")
-            desc, cmd = template_info.get(name, ("Configuration", "devops admin import --file"))
+            desc, cmd = template_info.get(
+                name, ("Configuration", "devops admin import --file")
+            )
             table.add_row(name, desc, cmd)
 
         console.print(table)
@@ -1510,7 +1554,9 @@ def manage_templates(
 
     if copy_template:
         # Copy specific template
-        template_name = copy_template.lower().replace("-template", "").replace(".yaml", "")
+        template_name = (
+            copy_template.lower().replace("-template", "").replace(".yaml", "")
+        )
         template_file = TEMPLATES_DIR / f"{template_name}-template.yaml"
 
         if not template_file.exists():
@@ -1567,11 +1613,18 @@ def manage_templates(
 
 # ==================== User Management ====================
 
+
 @app.command("user-add")
 def add_user(
-    email: str = typer.Option(..., "--email", "-e", prompt="User email", help="User's email address"),
-    name: Optional[str] = typer.Option(None, "--name", "-n", help="User's display name"),
-    role: str = typer.Option("developer", "--role", "-r", help="Role: developer or admin"),
+    email: str = typer.Option(
+        ..., "--email", "-e", prompt="User email", help="User's email address"
+    ),
+    name: Optional[str] = typer.Option(
+        None, "--name", "-n", help="User's display name"
+    ),
+    role: str = typer.Option(
+        "developer", "--role", "-r", help="Role: developer or admin"
+    ),
     team: str = typer.Option("default", "--team", "-t", help="Team name"),
 ):
     """Register a new user and generate access token.
@@ -1587,7 +1640,9 @@ def add_user(
 
         success(f"User '{email}' registered!")
         console.print()
-        console.print("[bold yellow]ACCESS TOKEN (share this securely with the user):[/]")
+        console.print(
+            "[bold yellow]ACCESS TOKEN (share this securely with the user):[/]"
+        )
         console.print()
         console.print(f"[bold cyan]{token}[/]")
         console.print()
@@ -1613,18 +1668,28 @@ def list_users():
 
     table = create_table(
         "",
-        [("Email", "cyan"), ("Name", ""), ("Role", ""), ("Team", ""), ("Status", ""), ("Last Login", "dim")]
+        [
+            ("Email", "cyan"),
+            ("Name", ""),
+            ("Role", ""),
+            ("Team", ""),
+            ("Status", ""),
+            ("Last Login", "dim"),
+        ],
     )
 
     for user in users:
-        status_str = "[green]Active[/]" if user.get("active", True) else "[red]Inactive[/]"
+        status_str = (
+            "[green]Active[/]" if user.get("active", True) else "[red]Inactive[/]"
+        )
         last_login = user.get("last_login", "-")
         if last_login and last_login != "-":
             from datetime import datetime
+
             try:
                 dt = datetime.fromisoformat(last_login)
                 last_login = dt.strftime("%Y-%m-%d %H:%M")
-            except:
+            except Exception:
                 pass
 
         table.add_row(
@@ -1633,7 +1698,7 @@ def list_users():
             user.get("role", "developer"),
             user.get("team", "default"),
             status_str,
-            last_login or "-"
+            last_login or "-",
         )
 
     console.print(table)
@@ -1683,7 +1748,9 @@ def reset_user_token(
     email: str = typer.Argument(..., help="User email to reset token for"),
 ):
     """Generate a new token for a user (invalidates old token)."""
-    if not Confirm.ask(f"Generate new token for '{email}'? (old token will stop working)"):
+    if not Confirm.ask(
+        f"Generate new token for '{email}'? (old token will stop working)"
+    ):
         info("Cancelled")
         return
 
@@ -1705,7 +1772,9 @@ def reset_user_token(
 @app.command("users-import")
 def import_users(
     file: str = typer.Option(..., "--file", "-f", help="Path to YAML file with users"),
-    skip_existing: bool = typer.Option(True, "--skip-existing/--fail-existing", help="Skip users that already exist"),
+    skip_existing: bool = typer.Option(
+        True, "--skip-existing/--fail-existing", help="Skip users that already exist"
+    ),
 ):
     """Import users from a YAML file (bulk registration).
 
@@ -1736,7 +1805,9 @@ def import_users(
     # Check if file exists
     if not file_path.exists():
         error(f"File not found: {file}")
-        info("Create a template with: devops admin users-export-template --output users.yaml")
+        info(
+            "Create a template with: devops admin users-export-template --output users.yaml"
+        )
         return
 
     info(f"Loading users from: {file}")
@@ -1772,7 +1843,9 @@ def import_users(
                 console.print(f"  - {u['email']}")
             console.print()
         else:
-            error(f"Found {len(duplicate_users)} existing users. Use --skip-existing to skip them.")
+            error(
+                f"Found {len(duplicate_users)} existing users. Use --skip-existing to skip them."
+            )
             for u in duplicate_users:
                 console.print(f"  - {u['email']}")
             return
@@ -1800,21 +1873,13 @@ def import_users(
                 email=user["email"],
                 name=user.get("name"),
                 role=user["role"],
-                team=user.get("team", "default")
+                team=user.get("team", "default"),
             )
-            results.append({
-                "email": user["email"],
-                "token": token,
-                "success": True
-            })
+            results.append({"email": user["email"], "token": token, "success": True})
             success(f"Registered: {user['email']}")
 
         except ValueError as e:
-            results.append({
-                "email": user["email"],
-                "error": str(e),
-                "success": False
-            })
+            results.append({"email": user["email"], "error": str(e), "success": False})
             error(f"Failed: {user['email']} - {e}")
 
     console.print()
@@ -1828,13 +1893,12 @@ def import_users(
     if successful:
         console.print(f"[green]Successfully registered: {len(successful)} users[/]")
         console.print()
-        console.print("[bold yellow]ACCESS TOKENS (share these securely with each user):[/]")
+        console.print(
+            "[bold yellow]ACCESS TOKENS (share these securely with each user):[/]"
+        )
         console.print()
 
-        table = create_table(
-            "",
-            [("Email", "cyan"), ("Token", "")]
-        )
+        table = create_table("", [("Email", "cyan"), ("Token", "")])
 
         for r in successful:
             table.add_row(r["email"], r["token"])
@@ -1852,7 +1916,9 @@ def import_users(
 
 @app.command("users-export-template")
 def export_users_template(
-    output: str = typer.Option("users-template.yaml", "--output", "-o", help="Output file path"),
+    output: str = typer.Option(
+        "users-template.yaml", "--output", "-o", help="Output file path"
+    ),
 ):
     """Export a template YAML file for bulk user registration.
 
@@ -1928,12 +1994,14 @@ def export_users(
     export_data = {"users": []}
 
     for user in users:
-        export_data["users"].append({
-            "email": user["email"],
-            "name": user.get("name"),
-            "role": user.get("role", "developer"),
-            "team": user.get("team", "default"),
-        })
+        export_data["users"].append(
+            {
+                "email": user["email"],
+                "name": user.get("name"),
+                "role": user.get("role", "developer"),
+                "team": user.get("team", "default"),
+            }
+        )
 
     # Write to file
     try:
@@ -1952,7 +2020,9 @@ def export_users(
 
 @app.command("audit-logs")
 def view_audit_logs(
-    limit: int = typer.Option(50, "--limit", "-l", help="Number of log entries to show"),
+    limit: int = typer.Option(
+        50, "--limit", "-l", help="Number of log entries to show"
+    ),
 ):
     """View authentication audit logs."""
     logs = auth.get_audit_logs(limit)
@@ -1980,6 +2050,7 @@ def view_audit_logs(
 
 # ==================== Repository Management ====================
 
+
 @app.command("repo-discover")
 def discover_repos(
     source: str = typer.Option(
@@ -1987,14 +2058,14 @@ def discover_repos(
         "--source",
         "-s",
         prompt="Source type (org/user)",
-        help="Discover from org or user repos"
+        help="Discover from org or user repos",
     ),
     name: str = typer.Option(
         ...,
         "--name",
         "-n",
         prompt="Organization or username",
-        help="GitHub organization or username"
+        help="GitHub organization or username",
     ),
 ):
     """Auto-discover all repositories from GitHub org or user.
@@ -2029,7 +2100,7 @@ def discover_repos(
         return
 
     if not repos:
-        warning(f"No repositories found or access denied")
+        warning("No repositories found or access denied")
         info("Make sure your GitHub token has 'repo' scope")
         return
 
@@ -2039,16 +2110,18 @@ def discover_repos(
     # Show repos in a table
     table = create_table(
         "Discovered Repositories",
-        [("Name", "cyan"), ("Owner", ""), ("Visibility", "yellow"), ("Language", "dim")]
+        [
+            ("Name", "cyan"),
+            ("Owner", ""),
+            ("Visibility", "yellow"),
+            ("Language", "dim"),
+        ],
     )
 
     for repo in repos[:20]:  # Show first 20
         visibility = "[red]private[/]" if repo["private"] else "[green]public[/]"
         table.add_row(
-            repo["name"],
-            repo["owner"],
-            visibility,
-            repo.get("language", "Unknown")
+            repo["name"], repo["owner"], visibility, repo.get("language", "Unknown")
         )
 
     console.print(table)
@@ -2059,7 +2132,9 @@ def discover_repos(
     console.print()
 
     # Ask which repos to add
-    add_all = Confirm.ask("Add all discovered repositories to configuration?", default=False)
+    add_all = Confirm.ask(
+        "Add all discovered repositories to configuration?", default=False
+    )
 
     if add_all:
         # Add all repos
@@ -2100,10 +2175,14 @@ def discover_repos(
 
 @app.command("repo-add")
 def add_repository(
-    name: str = typer.Option(None, "--name", "-n", help="Friendly name for the repo (e.g., backend)"),
+    name: str = typer.Option(
+        None, "--name", "-n", help="Friendly name for the repo (e.g., backend)"
+    ),
     owner: str = typer.Option(None, "--owner", "-o", help="GitHub owner/org"),
     repo: str = typer.Option(None, "--repo", "-r", help="Repository name"),
-    auto_fetch: bool = typer.Option(True, "--auto-fetch/--no-fetch", help="Auto-fetch details from GitHub"),
+    auto_fetch: bool = typer.Option(
+        True, "--auto-fetch/--no-fetch", help="Auto-fetch details from GitHub"
+    ),
 ):
     """Add a specific repository to configuration.
 
@@ -2135,7 +2214,9 @@ def add_repository(
         return
 
     if not token and auto_fetch:
-        warning("GitHub token not configured. Will add repo without auto-fetching details.")
+        warning(
+            "GitHub token not configured. Will add repo without auto-fetching details."
+        )
         auto_fetch = False
     elif token and auto_fetch:
         # Validate token
@@ -2160,16 +2241,18 @@ def add_repository(
 
         if github_data and "error" not in github_data:
             # Success
-            repo_config.update({
-                "description": github_data.get("description", "No description"),
-                "default_branch": github_data.get("default_branch", "main"),
-                "visibility": github_data.get("visibility", "private"),
-                "private": github_data.get("private", True),
-                "language": github_data.get("language"),
-                "url": github_data.get("url"),
-                "created_at": github_data.get("created_at"),
-                "auto_fetched": True,
-            })
+            repo_config.update(
+                {
+                    "description": github_data.get("description", "No description"),
+                    "default_branch": github_data.get("default_branch", "main"),
+                    "visibility": github_data.get("visibility", "private"),
+                    "private": github_data.get("private", True),
+                    "language": github_data.get("language"),
+                    "url": github_data.get("url"),
+                    "created_at": github_data.get("created_at"),
+                    "auto_fetched": True,
+                }
+            )
             success("Repository details fetched from GitHub!")
             console.print()
             console.print(f"  Description: {repo_config['description']}")
@@ -2186,7 +2269,9 @@ def add_repository(
                 return
             # Add minimal config
             repo_config["default_branch"] = Prompt.ask("Default branch", default="main")
-            repo_config["description"] = Prompt.ask("Description (optional)", default="")
+            repo_config["description"] = Prompt.ask(
+                "Description (optional)", default=""
+            )
         else:
             # Repository not found
             error("Could not fetch repo details from GitHub")
@@ -2196,14 +2281,21 @@ def add_repository(
                 return
             # Add minimal config
             repo_config["default_branch"] = Prompt.ask("Default branch", default="main")
-            repo_config["description"] = Prompt.ask("Description (optional)", default="")
+            repo_config["description"] = Prompt.ask(
+                "Description (optional)", default=""
+            )
     else:
         # Manual entry
         repo_config["default_branch"] = Prompt.ask("Default branch", default="main")
         repo_config["description"] = Prompt.ask("Description (optional)", default="")
 
     # Save
-    add_repo(name, owner, repo, **{k: v for k, v in repo_config.items() if k not in ["owner", "repo"]})
+    add_repo(
+        name,
+        owner,
+        repo,
+        **{k: v for k, v in repo_config.items() if k not in ["owner", "repo"]},
+    )
 
     success(f"Repository '{name}' added!")
     console.print()
@@ -2228,24 +2320,26 @@ def list_repositories():
 
     table = create_table(
         "",
-        [("Name", "cyan"), ("Owner/Repo", ""), ("Branch", "dim"), ("Language", "dim"), ("Visibility", "yellow")]
+        [
+            ("Name", "cyan"),
+            ("Owner/Repo", ""),
+            ("Branch", "dim"),
+            ("Language", "dim"),
+            ("Visibility", "yellow"),
+        ],
     )
 
     for name, repo in repos.items():
         owner_repo = f"{repo['owner']}/{repo['repo']}"
         branch = repo.get("default_branch", "main")
         language = repo.get("language", "Unknown")
-        visibility = repo.get("visibility", "unknown")
+        repo.get("visibility", "unknown")
 
-        vis_color = "[red]private[/]" if repo.get("private", True) else "[green]public[/]"
-
-        table.add_row(
-            name,
-            owner_repo[:40],
-            branch,
-            language,
-            vis_color
+        vis_color = (
+            "[red]private[/]" if repo.get("private", True) else "[green]public[/]"
         )
+
+        table.add_row(name, owner_repo[:40], branch, language, vis_color)
 
     console.print(table)
     info(f"\nTotal: {len(repos)} repositories")
@@ -2321,16 +2415,18 @@ def refresh_repository(
 
     # Update repo config
     repos = load_repos()
-    repos[name].update({
-        "description": github_data.get("description", "No description"),
-        "default_branch": github_data.get("default_branch", "main"),
-        "visibility": github_data.get("visibility", "private"),
-        "private": github_data.get("private", True),
-        "language": github_data.get("language"),
-        "url": github_data.get("url"),
-        "created_at": github_data.get("created_at"),
-        "last_refreshed": datetime.now().isoformat(),
-    })
+    repos[name].update(
+        {
+            "description": github_data.get("description", "No description"),
+            "default_branch": github_data.get("default_branch", "main"),
+            "visibility": github_data.get("visibility", "private"),
+            "private": github_data.get("private", True),
+            "language": github_data.get("language"),
+            "url": github_data.get("url"),
+            "created_at": github_data.get("created_at"),
+            "last_refreshed": datetime.now().isoformat(),
+        }
+    )
 
     save_repos(repos)
 
@@ -2381,12 +2477,19 @@ def edit_repository(
 
 # ==================== AWS Credentials Management ====================
 
+
 @app.command("aws-configure")
 def configure_aws_credentials(
-    access_key: Optional[str] = typer.Option(None, "--access-key", "-k", help="AWS Access Key ID"),
-    secret_key: Optional[str] = typer.Option(None, "--secret-key", "-s", help="AWS Secret Access Key"),
+    access_key: Optional[str] = typer.Option(
+        None, "--access-key", "-k", help="AWS Access Key ID"
+    ),
+    secret_key: Optional[str] = typer.Option(
+        None, "--secret-key", "-s", help="AWS Secret Access Key"
+    ),
     region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS Region"),
-    from_file: Optional[str] = typer.Option(None, "--from-file", "-f", help="Import from YAML file instead"),
+    from_file: Optional[str] = typer.Option(
+        None, "--from-file", "-f", help="Import from YAML file instead"
+    ),
 ):
     """Configure AWS credentials for CloudWatch log access.
 
@@ -2451,8 +2554,7 @@ def configure_aws_credentials(
 
     # Save credentials
     description = Prompt.ask(
-        "Description (optional)",
-        default="DevOps CLI CloudWatch Access"
+        "Description (optional)", default="DevOps CLI CloudWatch Access"
     )
 
     if save_aws_credentials(access_key, secret_key, region, description):
@@ -2506,13 +2608,13 @@ def test_aws_credentials():
         return
 
     info(f"Region: {creds['region']}")
-    info(f"Testing with Access Key: {creds['access_key'][:4]}...{creds['access_key'][-4:]}")
+    info(
+        f"Testing with Access Key: {creds['access_key'][:4]}...{creds['access_key'][-4:]}"
+    )
     console.print()
 
     is_valid, error_msg = validate_aws_credentials(
-        creds['access_key'],
-        creds['secret_key'],
-        creds['region']
+        creds["access_key"], creds["secret_key"], creds["region"]
     )
 
     if is_valid:
@@ -2546,8 +2648,12 @@ def remove_aws_credentials():
 
 @app.command("aws-import")
 def import_aws_credentials(
-    file: str = typer.Option(..., "--file", "-f", help="Path to YAML file with AWS credentials"),
-    skip_validation: bool = typer.Option(False, "--skip-validation", help="Skip AWS API validation (for CI/CD)"),
+    file: str = typer.Option(
+        ..., "--file", "-f", help="Path to YAML file with AWS credentials"
+    ),
+    skip_validation: bool = typer.Option(
+        False, "--skip-validation", help="Skip AWS API validation (for CI/CD)"
+    ),
 ):
     """Import AWS credentials from a YAML file.
 
@@ -2573,7 +2679,9 @@ def import_aws_credentials(
     # Check if file exists
     if not file_path.exists():
         error(f"File not found: {file}")
-        info("Create a template with: devops admin aws-export-template --output aws-credentials.yaml")
+        info(
+            "Create a template with: devops admin aws-export-template --output aws-credentials.yaml"
+        )
         return
 
     info(f"Loading credentials from: {file}")
@@ -2585,8 +2693,7 @@ def import_aws_credentials(
         console.print()
 
     success_result, error_msg, credentials = import_aws_credentials_from_yaml(
-        file_path,
-        skip_validation=skip_validation
+        file_path, skip_validation=skip_validation
     )
 
     if not success_result:
@@ -2615,7 +2722,9 @@ def import_aws_credentials(
 
         # Show masked info
         console.print(f"[bold]Region:[/] {credentials['region']}")
-        masked_key = f"{credentials['access_key'][:4]}...{credentials['access_key'][-4:]}"
+        masked_key = (
+            f"{credentials['access_key'][:4]}...{credentials['access_key'][-4:]}"
+        )
         console.print(f"[bold]Access Key:[/] {masked_key}")
         console.print(f"[bold]Description:[/] {credentials.get('description', 'N/A')}")
         console.print()
@@ -2634,7 +2743,9 @@ def import_aws_credentials(
 
 @app.command("aws-export-template")
 def export_aws_template(
-    output: str = typer.Option("aws-credentials-template.yaml", "--output", "-o", help="Output file path"),
+    output: str = typer.Option(
+        "aws-credentials-template.yaml", "--output", "-o", help="Output file path"
+    ),
 ):
     """Export a template YAML file for AWS credentials.
 
@@ -2679,10 +2790,13 @@ def export_aws_template(
 
 # ==================== Config Validation ====================
 
+
 @app.command("validate")
 def validate_config(
     file: str = typer.Argument(..., help="YAML config file to validate"),
-    config_type: Optional[str] = typer.Option(None, "--type", "-t", help="Config type (auto-detected if not specified)")
+    config_type: Optional[str] = typer.Option(
+        None, "--type", "-t", help="Config type (auto-detected if not specified)"
+    ),
 ):
     """Validate a YAML configuration file before importing.
 
@@ -2694,7 +2808,11 @@ def validate_config(
         devops admin validate servers.yaml --type servers
         devops admin validate aws-credentials.yaml
     """
-    from devops_cli.config.validator import validate_config_file, detect_config_type, ConfigType
+    from devops_cli.config.validator import (
+        validate_config_file,
+        detect_config_type,
+        ConfigType,
+    )
 
     file_path = Path(file)
 
@@ -2708,7 +2826,9 @@ def validate_config(
             cfg_type = ConfigType(config_type.lower())
         except ValueError:
             error(f"Invalid config type: {config_type}")
-            info("Valid types: apps, servers, websites, teams, repos, aws_roles, aws_credentials, users")
+            info(
+                "Valid types: apps, servers, websites, teams, repos, aws_roles, aws_credentials, users"
+            )
             return
     else:
         cfg_type = detect_config_type(file_path)
@@ -2749,4 +2869,6 @@ def validate_config(
             warning("Remember to delete this file after import for security!")
     else:
         console.print()
-        console.print("[red bold]✗ Configuration has errors - fix them before importing[/]")
+        console.print(
+            "[red bold]✗ Configuration has errors - fix them before importing[/]"
+        )

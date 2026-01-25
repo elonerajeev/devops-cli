@@ -10,6 +10,7 @@ from datetime import datetime
 @dataclass
 class WebsiteConfig:
     """Website monitoring configuration."""
+
     name: str
     url: str
     expected_status: int = 200
@@ -26,6 +27,7 @@ class WebsiteConfig:
 @dataclass
 class AppConfig:
     """Application monitoring configuration."""
+
     name: str
     type: str  # docker, pm2, process, ecs, kubernetes
     identifier: str  # container name, process name, service name
@@ -42,6 +44,7 @@ class AppConfig:
 @dataclass
 class ServerConfig:
     """Server monitoring configuration."""
+
     name: str
     host: str
     port: int = 22
@@ -66,21 +69,23 @@ def _load_dedicated_config_files(config_dir: Path) -> dict:
     websites_file = config_dir / "websites.yaml"
     if websites_file.exists():
         try:
-            with open(websites_file, 'r') as f:
+            with open(websites_file, "r") as f:
                 data = yaml.safe_load(f) or {}
             websites = data.get("websites", {})
             if isinstance(websites, dict):
                 for name, website in websites.items():
                     if isinstance(website, dict) and website.get("url"):
-                        result["websites"].append({
-                            "name": website.get("name", name),
-                            "url": website.get("url"),
-                            "expected_status": website.get("expected_status", 200),
-                            "timeout": website.get("timeout", 10),
-                            "method": website.get("method", "GET"),
-                            "headers": website.get("headers", {}),
-                            "enabled": website.get("enabled", True),
-                        })
+                        result["websites"].append(
+                            {
+                                "name": website.get("name", name),
+                                "url": website.get("url"),
+                                "expected_status": website.get("expected_status", 200),
+                                "timeout": website.get("timeout", 10),
+                                "method": website.get("method", "GET"),
+                                "headers": website.get("headers", {}),
+                                "enabled": website.get("enabled", True),
+                            }
+                        )
         except Exception:
             pass
 
@@ -88,7 +93,7 @@ def _load_dedicated_config_files(config_dir: Path) -> dict:
     apps_file = config_dir / "apps.yaml"
     if apps_file.exists():
         try:
-            with open(apps_file, 'r') as f:
+            with open(apps_file, "r") as f:
                 data = yaml.safe_load(f) or {}
             apps = data.get("apps", {})
             if isinstance(apps, dict):
@@ -105,15 +110,17 @@ def _load_dedicated_config_files(config_dir: Path) -> dict:
                         if health_check.get("url"):
                             health_endpoint = health_check.get("url")
 
-                        result["apps"].append({
-                            "name": app.get("name", name),
-                            "type": app_type,
-                            "identifier": identifier,
-                            "host": host,
-                            "port": port,
-                            "health_endpoint": health_endpoint,
-                            "enabled": app.get("enabled", True),
-                        })
+                        result["apps"].append(
+                            {
+                                "name": app.get("name", name),
+                                "type": app_type,
+                                "identifier": identifier,
+                                "host": host,
+                                "port": port,
+                                "health_endpoint": health_endpoint,
+                                "enabled": app.get("enabled", True),
+                            }
+                        )
         except Exception:
             pass
 
@@ -121,21 +128,23 @@ def _load_dedicated_config_files(config_dir: Path) -> dict:
     servers_file = config_dir / "servers.yaml"
     if servers_file.exists():
         try:
-            with open(servers_file, 'r') as f:
+            with open(servers_file, "r") as f:
                 data = yaml.safe_load(f) or {}
             servers = data.get("servers", {})
             if isinstance(servers, dict):
                 for name, server in servers.items():
                     if isinstance(server, dict) and server.get("host"):
-                        result["servers"].append({
-                            "name": server.get("name", name),
-                            "host": server.get("host"),
-                            "port": server.get("port", 22),
-                            "check_type": server.get("check_type", "ping"),
-                            "ssh_user": server.get("user"),
-                            "ssh_key": server.get("key"),
-                            "enabled": server.get("enabled", True),
-                        })
+                        result["servers"].append(
+                            {
+                                "name": server.get("name", name),
+                                "host": server.get("host"),
+                                "port": server.get("port", 22),
+                                "check_type": server.get("check_type", "ping"),
+                                "ssh_user": server.get("user"),
+                                "ssh_key": server.get("key"),
+                                "enabled": server.get("enabled", True),
+                            }
+                        )
         except Exception:
             pass
 
@@ -154,29 +163,31 @@ class MonitoringConfig:
         """Ensure config directory and file exist."""
         self.config_dir.mkdir(parents=True, exist_ok=True)
         if not self.config_file.exists():
-            self._save_config({
-                "websites": [],
-                "apps": [],
-                "servers": [],
-                "settings": {
-                    "refresh_interval": 5,
-                    "alert_on_failure": True,
-                    "failure_threshold": 3,
-                    "history_retention_hours": 24
+            self._save_config(
+                {
+                    "websites": [],
+                    "apps": [],
+                    "servers": [],
+                    "settings": {
+                        "refresh_interval": 5,
+                        "alert_on_failure": True,
+                        "failure_threshold": 3,
+                        "history_retention_hours": 24,
+                    },
                 }
-            })
+            )
 
     def _load_config(self) -> dict:
         """Load configuration from file."""
         try:
-            with open(self.config_file, 'r') as f:
+            with open(self.config_file, "r") as f:
                 return yaml.safe_load(f) or {}
         except Exception:
             return {"websites": [], "apps": [], "servers": [], "settings": {}}
 
     def _save_config(self, config: dict):
         """Save configuration to file."""
-        with open(self.config_file, 'w') as f:
+        with open(self.config_file, "w") as f:
             yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
     # Website management
@@ -197,7 +208,9 @@ class MonitoringConfig:
         """Remove a website from monitoring."""
         config = self._load_config()
         original_count = len(config.get("websites", []))
-        config["websites"] = [w for w in config.get("websites", []) if w["name"] != name]
+        config["websites"] = [
+            w for w in config.get("websites", []) if w["name"] != name
+        ]
 
         if len(config["websites"]) < original_count:
             self._save_config(config)
@@ -207,11 +220,15 @@ class MonitoringConfig:
     def get_websites(self) -> list[WebsiteConfig]:
         """Get all monitored websites from both monitoring.yaml and websites.yaml."""
         config = self._load_config()
-        monitoring_websites = [w for w in config.get("websites", []) if w.get("enabled", True)]
+        monitoring_websites = [
+            w for w in config.get("websites", []) if w.get("enabled", True)
+        ]
 
         # Load from dedicated websites.yaml
         dedicated = _load_dedicated_config_files(self.config_dir)
-        dedicated_websites = [w for w in dedicated.get("websites", []) if w.get("enabled", True)]
+        dedicated_websites = [
+            w for w in dedicated.get("websites", []) if w.get("enabled", True)
+        ]
 
         # Merge, avoiding duplicates by name
         seen_names = set()
@@ -282,7 +299,9 @@ class MonitoringConfig:
         monitoring_apps = [a for a in config.get("apps", []) if a.get("enabled", True)]
 
         dedicated = _load_dedicated_config_files(self.config_dir)
-        dedicated_apps = [a for a in dedicated.get("apps", []) if a.get("enabled", True)]
+        dedicated_apps = [
+            a for a in dedicated.get("apps", []) if a.get("enabled", True)
+        ]
 
         seen_names = set()
         all_apps = []
@@ -349,10 +368,14 @@ class MonitoringConfig:
     def get_servers(self) -> list[ServerConfig]:
         """Get all monitored servers from both monitoring.yaml and servers.yaml."""
         config = self._load_config()
-        monitoring_servers = [s for s in config.get("servers", []) if s.get("enabled", True)]
+        monitoring_servers = [
+            s for s in config.get("servers", []) if s.get("enabled", True)
+        ]
 
         dedicated = _load_dedicated_config_files(self.config_dir)
-        dedicated_servers = [s for s in dedicated.get("servers", []) if s.get("enabled", True)]
+        dedicated_servers = [
+            s for s in dedicated.get("servers", []) if s.get("enabled", True)
+        ]
 
         seen_names = set()
         all_servers = []
@@ -396,12 +419,15 @@ class MonitoringConfig:
     def get_settings(self) -> dict:
         """Get monitoring settings."""
         config = self._load_config()
-        return config.get("settings", {
-            "refresh_interval": 5,
-            "alert_on_failure": True,
-            "failure_threshold": 3,
-            "history_retention_hours": 24
-        })
+        return config.get(
+            "settings",
+            {
+                "refresh_interval": 5,
+                "alert_on_failure": True,
+                "failure_threshold": 3,
+                "history_retention_hours": 24,
+            },
+        )
 
     def update_settings(self, **kwargs):
         """Update monitoring settings."""
@@ -415,7 +441,7 @@ class MonitoringConfig:
         return {
             "websites": self.get_websites(),
             "apps": self.get_apps(),
-            "servers": self.get_servers()
+            "servers": self.get_servers(),
         }
 
     def get_resource_counts(self) -> dict:
@@ -423,5 +449,5 @@ class MonitoringConfig:
         return {
             "websites": len(self.get_websites()),
             "apps": len(self.get_apps()),
-            "servers": len(self.get_servers())
+            "servers": len(self.get_servers()),
         }

@@ -1,7 +1,5 @@
 """Centralized configuration loading and saving utilities."""
 
-import os
-import json
 import yaml
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
@@ -13,15 +11,17 @@ SERVERS_CONFIG_FILE = ADMIN_CONFIG_DIR / "servers.yaml"
 WEBSITES_CONFIG_FILE = ADMIN_CONFIG_DIR / "websites.yaml"
 AWS_CONFIG_FILE = ADMIN_CONFIG_DIR / "aws.yaml"
 TEAMS_CONFIG_FILE = ADMIN_CONFIG_DIR / "teams.yaml"
-SECRETS_DIR = ADMIN_CONFIG_DIR / "secrets" # Also moved here
+SECRETS_DIR = ADMIN_CONFIG_DIR / "secrets"  # Also moved here
 
 # AWS credentials YAML template file (input only - not stored by CLI)
 AWS_CREDENTIALS_YAML_FILE = "aws-credentials.yaml"
+
 
 def ensure_admin_dirs():
     """Ensure admin config directories exist."""
     ADMIN_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     SECRETS_DIR.mkdir(parents=True, exist_ok=True)
+
 
 def _load_yaml_file(file_path: Path) -> Dict[str, Any]:
     """Helper to load a YAML file, returning empty dict if not found or invalid."""
@@ -34,9 +34,10 @@ def _load_yaml_file(file_path: Path) -> Dict[str, Any]:
             return {}
     return {}
 
+
 def _save_yaml_file(file_path: Path, config: Dict[str, Any]):
     """Helper to save a config dict to a YAML file."""
-    ensure_admin_dirs() # Ensure dirs exist before saving
+    ensure_admin_dirs()  # Ensure dirs exist before saving
     with open(file_path, "w") as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
@@ -45,6 +46,7 @@ def _save_yaml_file(file_path: Path, config: Dict[str, Any]):
 def load_apps_config() -> Dict[str, Any]:
     """Load applications configuration."""
     return _load_yaml_file(APPS_CONFIG_FILE)
+
 
 def save_apps_config(config: Dict[str, Any]):
     """Save applications configuration."""
@@ -55,6 +57,7 @@ def save_apps_config(config: Dict[str, Any]):
 def load_servers_config() -> Dict[str, Any]:
     """Load servers configuration."""
     return _load_yaml_file(SERVERS_CONFIG_FILE)
+
 
 def save_servers_config(config: Dict[str, Any]):
     """Save servers configuration."""
@@ -70,6 +73,7 @@ def load_websites_config() -> Dict[str, Any]:
     # or it needs to be redesigned. For centralized loader, this is the canonical one.
     return _load_yaml_file(WEBSITES_CONFIG_FILE)
 
+
 def save_websites_config(config: Dict[str, Any]):
     """Save websites configuration."""
     _save_yaml_file(WEBSITES_CONFIG_FILE, config)
@@ -79,6 +83,7 @@ def save_websites_config(config: Dict[str, Any]):
 def load_aws_config() -> Dict[str, Any]:
     """Load AWS configuration."""
     return _load_yaml_file(AWS_CONFIG_FILE)
+
 
 def save_aws_config(config: Dict[str, Any]):
     """Save AWS configuration."""
@@ -90,14 +95,15 @@ def load_teams_config() -> Dict[str, Any]:
     """Load teams configuration."""
     return _load_yaml_file(TEAMS_CONFIG_FILE)
 
+
 def save_teams_config(config: Dict[str, Any]):
     """Save teams configuration."""
     _save_yaml_file(TEAMS_CONFIG_FILE, config)
 
+
 # --- Global Config (from settings.py) ---
 # It's better to keep global config logic in settings.py itself,
 # but ensure paths are consistent.
-from devops_cli.config.settings import load_config as load_global_config, save_config as save_global_config
 
 
 # --- AWS Credentials YAML Import ---
@@ -162,10 +168,16 @@ def validate_aws_credentials_yaml(data: Dict[str, Any]) -> Tuple[bool, Optional[
     # Validate access key format (AWS access keys start with AKIA)
     access_key = creds["access_key"]
     if not access_key.startswith("AKIA"):
-        return False, "Invalid Access Key format. AWS Access Keys should start with 'AKIA'"
+        return (
+            False,
+            "Invalid Access Key format. AWS Access Keys should start with 'AKIA'",
+        )
 
     if len(access_key) != 20:
-        return False, f"Invalid Access Key length. Expected 20 characters, got {len(access_key)}"
+        return (
+            False,
+            f"Invalid Access Key length. Expected 20 characters, got {len(access_key)}",
+        )
 
     # Validate secret key length
     secret_key = creds["secret_key"]
@@ -223,8 +235,7 @@ aws_credentials:
 
 
 def import_aws_credentials_from_yaml(
-    file_path: Path,
-    skip_validation: bool = False
+    file_path: Path, skip_validation: bool = False
 ) -> Tuple[bool, Optional[str], Optional[Dict[str, str]]]:
     """
     Import AWS credentials from a YAML file, validate, and prepare for encryption.
@@ -260,7 +271,7 @@ def import_aws_credentials_from_yaml(
         "access_key": creds["access_key"],
         "secret_key": creds["secret_key"],
         "region": creds["region"],
-        "description": creds.get("description", "Imported from YAML")
+        "description": creds.get("description", "Imported from YAML"),
     }
 
     # Validate against AWS API unless skipped
@@ -268,9 +279,7 @@ def import_aws_credentials_from_yaml(
         from devops_cli.config.aws_credentials import validate_aws_credentials
 
         is_valid, error_msg = validate_aws_credentials(
-            credentials["access_key"],
-            credentials["secret_key"],
-            credentials["region"]
+            credentials["access_key"], credentials["secret_key"], credentials["region"]
         )
 
         if not is_valid:
@@ -360,7 +369,10 @@ def validate_aws_roles_yaml(data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
         # Validate ARN format
         arn = role_config["role_arn"]
         if not arn.startswith("arn:aws:iam::"):
-            return False, f"Role '{role_name}' has invalid ARN format. Should start with 'arn:aws:iam::'"
+            return (
+                False,
+                f"Role '{role_name}' has invalid ARN format. Should start with 'arn:aws:iam::'",
+            )
 
     return True, None
 
@@ -487,7 +499,10 @@ def validate_users_yaml(data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
 
         role = user["role"]
         if role not in ["admin", "developer"]:
-            return False, f"User '{email}' has invalid role '{role}'. Must be 'admin' or 'developer'"
+            return (
+                False,
+                f"User '{email}' has invalid role '{role}'. Must be 'admin' or 'developer'",
+            )
 
     return True, None
 

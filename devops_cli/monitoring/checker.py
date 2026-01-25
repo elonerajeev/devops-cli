@@ -1,8 +1,6 @@
 """Health checkers for websites, apps, and servers."""
 
 import asyncio
-import subprocess
-import socket
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -12,6 +10,7 @@ from contextlib import asynccontextmanager
 
 try:
     import aiohttp
+
     AIOHTTP_AVAILABLE = True
 except ImportError:
     AIOHTTP_AVAILABLE = False
@@ -23,6 +22,7 @@ from .config import WebsiteConfig, AppConfig, ServerConfig
 
 class HealthStatus(Enum):
     """Health status enumeration."""
+
     HEALTHY = "healthy"
     UNHEALTHY = "unhealthy"
     DEGRADED = "degraded"
@@ -33,6 +33,7 @@ class HealthStatus(Enum):
 @dataclass
 class HealthResult:
     """Result of a health check."""
+
     name: str
     resource_type: Literal["website", "app", "server"]
     status: HealthStatus
@@ -51,7 +52,7 @@ class HealthResult:
             HealthStatus.UNHEALTHY: "●",
             HealthStatus.DEGRADED: "●",
             HealthStatus.UNKNOWN: "○",
-            HealthStatus.CHECKING: "◐"
+            HealthStatus.CHECKING: "◐",
         }
         return icons.get(self.status, "?")
 
@@ -63,7 +64,7 @@ class HealthResult:
             HealthStatus.UNHEALTHY: "red",
             HealthStatus.DEGRADED: "yellow",
             HealthStatus.UNKNOWN: "dim",
-            HealthStatus.CHECKING: "cyan"
+            HealthStatus.CHECKING: "cyan",
         }
         return colors.get(self.status, "white")
 
@@ -78,6 +79,7 @@ class HTTPClientPool:
     This improves performance by reusing connections instead of creating
     a new client for each request.
     """
+
     _instance: Optional["HTTPClientPool"] = None
     _client: Optional[httpx.AsyncClient] = None
 
@@ -95,8 +97,8 @@ class HTTPClientPool:
                 limits=httpx.Limits(
                     max_keepalive_connections=20,
                     max_connections=100,
-                    keepalive_expiry=30.0
-                )
+                    keepalive_expiry=30.0,
+                ),
             )
         return self._client
 
@@ -114,6 +116,7 @@ class HTTPClientPool:
             yield client
         except Exception:
             raise
+
 
 # Global pool instance
 _http_pool = HTTPClientPool()
@@ -165,7 +168,7 @@ class HealthChecker:
                     method=website.method,
                     url=website.url,
                     headers=website.headers or {},
-                    timeout=httpx.Timeout(website.timeout)
+                    timeout=httpx.Timeout(website.timeout),
                 )
 
                 response_time = (time.time() - start_time) * 1000
@@ -189,8 +192,8 @@ class HealthChecker:
                     details={
                         "url": website.url,
                         "status_code": response.status_code,
-                        "content_length": len(response.content)
-                    }
+                        "content_length": len(response.content),
+                    },
                 )
 
         except httpx.TimeoutException:
@@ -200,7 +203,7 @@ class HealthChecker:
                 status=HealthStatus.UNHEALTHY,
                 response_time_ms=website.timeout * 1000,
                 message="Timeout",
-                details={"url": website.url, "error": "Connection timeout"}
+                details={"url": website.url, "error": "Connection timeout"},
             )
         except httpx.ConnectError as e:
             result = HealthResult(
@@ -208,7 +211,7 @@ class HealthChecker:
                 resource_type="website",
                 status=HealthStatus.UNHEALTHY,
                 message="Connection failed",
-                details={"url": website.url, "error": str(e)}
+                details={"url": website.url, "error": str(e)},
             )
         except Exception as e:
             result = HealthResult(
@@ -216,7 +219,7 @@ class HealthChecker:
                 resource_type="website",
                 status=HealthStatus.UNKNOWN,
                 message=f"Error: {type(e).__name__}",
-                details={"url": website.url, "error": str(e)}
+                details={"url": website.url, "error": str(e)},
             )
 
         self._record_result(result)
@@ -229,7 +232,7 @@ class HealthChecker:
             "pm2": self._check_pm2_app,
             "process": self._check_process_app,
             "http": self._check_http_app,
-            "port": self._check_port_app
+            "port": self._check_port_app,
         }
 
         checker = checkers.get(app.type, self._check_http_app)
@@ -242,11 +245,13 @@ class HealthChecker:
         try:
             # Get container status
             proc = await asyncio.create_subprocess_exec(
-                "docker", "inspect", "--format",
+                "docker",
+                "inspect",
+                "--format",
                 '{"status":"{{.State.Status}}","health":"{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}","cpu":"{{.HostConfig.NanoCpus}}","memory":"{{.HostConfig.Memory}}"}',
                 app.identifier,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
             stdout, stderr = await proc.communicate()
 
@@ -256,19 +261,26 @@ class HealthChecker:
                     resource_type="app",
                     status=HealthStatus.UNHEALTHY,
                     message="Container not found",
-                    details={"container": app.identifier, "error": stderr.decode().strip()}
+                    details={
+                        "container": app.identifier,
+                        "error": stderr.decode().strip(),
+                    },
                 )
 
             import json
+
             info = json.loads(stdout.decode().strip())
 
             # Get container stats
             stats_proc = await asyncio.create_subprocess_exec(
-                "docker", "stats", "--no-stream", "--format",
+                "docker",
+                "stats",
+                "--no-stream",
+                "--format",
                 '{"cpu":"{{.CPUPerc}}","memory":"{{.MemUsage}}","mem_perc":"{{.MemPerc}}"}',
                 app.identifier,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
             stats_stdout, _ = await stats_proc.communicate()
 
@@ -306,8 +318,8 @@ class HealthChecker:
                     "type": "docker",
                     "cpu": stats.get("cpu", "N/A"),
                     "memory": stats.get("memory", "N/A"),
-                    "memory_percent": stats.get("mem_perc", "N/A")
-                }
+                    "memory_percent": stats.get("mem_perc", "N/A"),
+                },
             )
 
         except FileNotFoundError:
@@ -316,7 +328,7 @@ class HealthChecker:
                 resource_type="app",
                 status=HealthStatus.UNKNOWN,
                 message="Docker not installed",
-                details={"container": app.identifier, "error": "Docker CLI not found"}
+                details={"container": app.identifier, "error": "Docker CLI not found"},
             )
         except Exception as e:
             return HealthResult(
@@ -324,16 +336,17 @@ class HealthChecker:
                 resource_type="app",
                 status=HealthStatus.UNKNOWN,
                 message=f"Error: {type(e).__name__}",
-                details={"container": app.identifier, "error": str(e)}
+                details={"container": app.identifier, "error": str(e)},
             )
 
     async def _check_pm2_app(self, app: AppConfig) -> HealthResult:
         """Check PM2 process health."""
         try:
             proc = await asyncio.create_subprocess_exec(
-                "pm2", "jlist",
+                "pm2",
+                "jlist",
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
             stdout, stderr = await proc.communicate()
 
@@ -343,10 +356,14 @@ class HealthChecker:
                     resource_type="app",
                     status=HealthStatus.UNKNOWN,
                     message="PM2 error",
-                    details={"process": app.identifier, "error": stderr.decode().strip()}
+                    details={
+                        "process": app.identifier,
+                        "error": stderr.decode().strip(),
+                    },
                 )
 
             import json
+
             processes = json.loads(stdout.decode())
 
             # Find our process
@@ -362,7 +379,7 @@ class HealthChecker:
                     resource_type="app",
                     status=HealthStatus.UNHEALTHY,
                     message="Process not found",
-                    details={"process": app.identifier}
+                    details={"process": app.identifier},
                 )
 
             pm2_status = target.get("pm2_env", {}).get("status", "unknown")
@@ -391,8 +408,8 @@ class HealthChecker:
                     "cpu": f"{cpu}%",
                     "memory": f"{memory // (1024*1024)}MB",
                     "restarts": restarts,
-                    "pid": target.get("pid", "N/A")
-                }
+                    "pid": target.get("pid", "N/A"),
+                },
             )
 
         except FileNotFoundError:
@@ -401,7 +418,7 @@ class HealthChecker:
                 resource_type="app",
                 status=HealthStatus.UNKNOWN,
                 message="PM2 not installed",
-                details={"process": app.identifier, "error": "PM2 CLI not found"}
+                details={"process": app.identifier, "error": "PM2 CLI not found"},
             )
         except Exception as e:
             return HealthResult(
@@ -409,32 +426,40 @@ class HealthChecker:
                 resource_type="app",
                 status=HealthStatus.UNKNOWN,
                 message=f"Error: {type(e).__name__}",
-                details={"process": app.identifier, "error": str(e)}
+                details={"process": app.identifier, "error": str(e)},
             )
 
     async def _check_process_app(self, app: AppConfig) -> HealthResult:
         """Check system process health by name."""
         try:
             proc = await asyncio.create_subprocess_exec(
-                "pgrep", "-f", app.identifier,
+                "pgrep",
+                "-f",
+                app.identifier,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
             stdout, _ = await proc.communicate()
 
-            pids = stdout.decode().strip().split('\n') if stdout.decode().strip() else []
+            pids = (
+                stdout.decode().strip().split("\n") if stdout.decode().strip() else []
+            )
 
             if pids and pids[0]:
                 # Get process stats
                 pid = pids[0]
                 ps_proc = await asyncio.create_subprocess_exec(
-                    "ps", "-p", pid, "-o", "%cpu,%mem,etime",
+                    "ps",
+                    "-p",
+                    pid,
+                    "-o",
+                    "%cpu,%mem,etime",
                     stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
+                    stderr=asyncio.subprocess.PIPE,
                 )
                 ps_stdout, _ = await ps_proc.communicate()
 
-                lines = ps_stdout.decode().strip().split('\n')
+                lines = ps_stdout.decode().strip().split("\n")
                 stats = {}
                 if len(lines) > 1:
                     parts = lines[1].split()
@@ -442,7 +467,7 @@ class HealthChecker:
                         stats = {
                             "cpu": f"{parts[0]}%",
                             "memory": f"{parts[1]}%",
-                            "uptime": parts[2]
+                            "uptime": parts[2],
                         }
 
                 return HealthResult(
@@ -454,8 +479,8 @@ class HealthChecker:
                         "process": app.identifier,
                         "type": "process",
                         "pids": pids,
-                        **stats
-                    }
+                        **stats,
+                    },
                 )
             else:
                 return HealthResult(
@@ -463,7 +488,7 @@ class HealthChecker:
                     resource_type="app",
                     status=HealthStatus.UNHEALTHY,
                     message="Not running",
-                    details={"process": app.identifier, "type": "process"}
+                    details={"process": app.identifier, "type": "process"},
                 )
 
         except Exception as e:
@@ -472,7 +497,7 @@ class HealthChecker:
                 resource_type="app",
                 status=HealthStatus.UNKNOWN,
                 message=f"Error: {type(e).__name__}",
-                details={"process": app.identifier, "error": str(e)}
+                details={"process": app.identifier, "error": str(e)},
             )
 
     async def _check_http_app(self, app: AppConfig) -> HealthResult:
@@ -483,7 +508,7 @@ class HealthChecker:
                 resource_type="app",
                 status=HealthStatus.UNKNOWN,
                 message="No health endpoint",
-                details={"app": app.identifier}
+                details={"app": app.identifier},
             )
 
         url = app.health_endpoint
@@ -506,7 +531,7 @@ class HealthChecker:
                         status=HealthStatus.HEALTHY,
                         response_time_ms=round(response_time, 1),
                         message="Healthy",
-                        details={"url": url, "status_code": response.status_code}
+                        details={"url": url, "status_code": response.status_code},
                     )
                 else:
                     return HealthResult(
@@ -515,7 +540,7 @@ class HealthChecker:
                         status=HealthStatus.UNHEALTHY,
                         response_time_ms=round(response_time, 1),
                         message=f"HTTP {response.status_code}",
-                        details={"url": url, "status_code": response.status_code}
+                        details={"url": url, "status_code": response.status_code},
                     )
 
         except Exception as e:
@@ -524,7 +549,7 @@ class HealthChecker:
                 resource_type="app",
                 status=HealthStatus.UNHEALTHY,
                 message=f"Error: {type(e).__name__}",
-                details={"url": url, "error": str(e)}
+                details={"url": url, "error": str(e)},
             )
 
     async def _check_port_app(self, app: AppConfig) -> HealthResult:
@@ -535,15 +560,14 @@ class HealthChecker:
                 resource_type="app",
                 status=HealthStatus.UNKNOWN,
                 message="No host/port configured",
-                details={"app": app.identifier}
+                details={"app": app.identifier},
             )
 
         start_time = time.time()
         try:
             # Use asyncio to check port
             _, writer = await asyncio.wait_for(
-                asyncio.open_connection(app.host, app.port),
-                timeout=5.0
+                asyncio.open_connection(app.host, app.port), timeout=5.0
             )
             writer.close()
             await writer.wait_closed()
@@ -556,7 +580,7 @@ class HealthChecker:
                 status=HealthStatus.HEALTHY,
                 response_time_ms=round(response_time, 1),
                 message=f"Port {app.port} open",
-                details={"host": app.host, "port": app.port}
+                details={"host": app.host, "port": app.port},
             )
 
         except asyncio.TimeoutError:
@@ -565,7 +589,7 @@ class HealthChecker:
                 resource_type="app",
                 status=HealthStatus.UNHEALTHY,
                 message="Connection timeout",
-                details={"host": app.host, "port": app.port}
+                details={"host": app.host, "port": app.port},
             )
         except ConnectionRefusedError:
             return HealthResult(
@@ -573,7 +597,7 @@ class HealthChecker:
                 resource_type="app",
                 status=HealthStatus.UNHEALTHY,
                 message="Connection refused",
-                details={"host": app.host, "port": app.port}
+                details={"host": app.host, "port": app.port},
             )
         except Exception as e:
             return HealthResult(
@@ -581,7 +605,7 @@ class HealthChecker:
                 resource_type="app",
                 status=HealthStatus.UNKNOWN,
                 message=f"Error: {type(e).__name__}",
-                details={"host": app.host, "port": app.port, "error": str(e)}
+                details={"host": app.host, "port": app.port, "error": str(e)},
             )
 
     async def check_server(self, server: ServerConfig) -> HealthResult:
@@ -590,7 +614,7 @@ class HealthChecker:
             "ping": self._check_server_ping,
             "ssh": self._check_server_ssh,
             "http": self._check_server_http,
-            "port": self._check_server_port
+            "port": self._check_server_port,
         }
 
         checker = checkers.get(server.check_type, self._check_server_ping)
@@ -603,9 +627,14 @@ class HealthChecker:
         try:
             # Use ping command (works on most systems)
             proc = await asyncio.create_subprocess_exec(
-                "ping", "-c", "1", "-W", "3", server.host,
+                "ping",
+                "-c",
+                "1",
+                "-W",
+                "3",
+                server.host,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
 
@@ -613,11 +642,11 @@ class HealthChecker:
                 # Extract response time from ping output
                 output = stdout.decode()
                 response_time = None
-                for line in output.split('\n'):
-                    if 'time=' in line:
+                for line in output.split("\n"):
+                    if "time=" in line:
                         try:
-                            time_part = line.split('time=')[1].split()[0]
-                            response_time = float(time_part.replace('ms', ''))
+                            time_part = line.split("time=")[1].split()[0]
+                            response_time = float(time_part.replace("ms", ""))
                         except:
                             pass
 
@@ -627,7 +656,7 @@ class HealthChecker:
                     status=HealthStatus.HEALTHY,
                     response_time_ms=response_time,
                     message="Reachable",
-                    details={"host": server.host, "check": "ping"}
+                    details={"host": server.host, "check": "ping"},
                 )
             else:
                 return HealthResult(
@@ -635,7 +664,7 @@ class HealthChecker:
                     resource_type="server",
                     status=HealthStatus.UNHEALTHY,
                     message="Unreachable",
-                    details={"host": server.host, "check": "ping"}
+                    details={"host": server.host, "check": "ping"},
                 )
 
         except asyncio.TimeoutError:
@@ -644,7 +673,7 @@ class HealthChecker:
                 resource_type="server",
                 status=HealthStatus.UNHEALTHY,
                 message="Timeout",
-                details={"host": server.host, "check": "ping"}
+                details={"host": server.host, "check": "ping"},
             )
         except Exception as e:
             return HealthResult(
@@ -652,7 +681,7 @@ class HealthChecker:
                 resource_type="server",
                 status=HealthStatus.UNKNOWN,
                 message=f"Error: {type(e).__name__}",
-                details={"host": server.host, "error": str(e)}
+                details={"host": server.host, "error": str(e)},
             )
 
     async def _check_server_ssh(self, server: ServerConfig) -> HealthResult:
@@ -660,14 +689,12 @@ class HealthChecker:
         start_time = time.time()
         try:
             _, writer = await asyncio.wait_for(
-                asyncio.open_connection(server.host, server.port),
-                timeout=5.0
+                asyncio.open_connection(server.host, server.port), timeout=5.0
             )
 
             # Read SSH banner
             reader_data = await asyncio.wait_for(
-                asyncio.open_connection(server.host, server.port),
-                timeout=5.0
+                asyncio.open_connection(server.host, server.port), timeout=5.0
             )
             reader = reader_data[0]
             banner = await asyncio.wait_for(reader.read(256), timeout=2.0)
@@ -688,8 +715,8 @@ class HealthChecker:
                     "host": server.host,
                     "port": server.port,
                     "check": "ssh",
-                    "banner": banner.decode('utf-8', errors='ignore').strip()[:50]
-                }
+                    "banner": banner.decode("utf-8", errors="ignore").strip()[:50],
+                },
             )
 
         except asyncio.TimeoutError:
@@ -698,7 +725,7 @@ class HealthChecker:
                 resource_type="server",
                 status=HealthStatus.UNHEALTHY,
                 message="SSH Timeout",
-                details={"host": server.host, "port": server.port, "check": "ssh"}
+                details={"host": server.host, "port": server.port, "check": "ssh"},
             )
         except ConnectionRefusedError:
             return HealthResult(
@@ -706,7 +733,7 @@ class HealthChecker:
                 resource_type="server",
                 status=HealthStatus.UNHEALTHY,
                 message="SSH Refused",
-                details={"host": server.host, "port": server.port, "check": "ssh"}
+                details={"host": server.host, "port": server.port, "check": "ssh"},
             )
         except Exception as e:
             return HealthResult(
@@ -714,7 +741,7 @@ class HealthChecker:
                 resource_type="server",
                 status=HealthStatus.UNKNOWN,
                 message=f"Error: {type(e).__name__}",
-                details={"host": server.host, "error": str(e)}
+                details={"host": server.host, "error": str(e)},
             )
 
     async def _check_server_http(self, server: ServerConfig) -> HealthResult:
@@ -734,7 +761,7 @@ class HealthChecker:
                         status=HealthStatus.HEALTHY,
                         response_time_ms=round(response_time, 1),
                         message=f"HTTP {response.status_code}",
-                        details={"url": url, "check": "http"}
+                        details={"url": url, "check": "http"},
                     )
                 else:
                     return HealthResult(
@@ -743,7 +770,7 @@ class HealthChecker:
                         status=HealthStatus.UNHEALTHY,
                         response_time_ms=round(response_time, 1),
                         message=f"HTTP {response.status_code}",
-                        details={"url": url, "check": "http"}
+                        details={"url": url, "check": "http"},
                     )
 
         except Exception as e:
@@ -752,7 +779,7 @@ class HealthChecker:
                 resource_type="server",
                 status=HealthStatus.UNHEALTHY,
                 message=f"Error: {type(e).__name__}",
-                details={"url": url, "error": str(e)}
+                details={"url": url, "error": str(e)},
             )
 
     async def _check_server_port(self, server: ServerConfig) -> HealthResult:
@@ -760,8 +787,7 @@ class HealthChecker:
         start_time = time.time()
         try:
             _, writer = await asyncio.wait_for(
-                asyncio.open_connection(server.host, server.port),
-                timeout=5.0
+                asyncio.open_connection(server.host, server.port), timeout=5.0
             )
             writer.close()
             await writer.wait_closed()
@@ -774,7 +800,7 @@ class HealthChecker:
                 status=HealthStatus.HEALTHY,
                 response_time_ms=round(response_time, 1),
                 message=f"Port {server.port} open",
-                details={"host": server.host, "port": server.port, "check": "port"}
+                details={"host": server.host, "port": server.port, "check": "port"},
             )
 
         except (asyncio.TimeoutError, ConnectionRefusedError):
@@ -783,7 +809,7 @@ class HealthChecker:
                 resource_type="server",
                 status=HealthStatus.UNHEALTHY,
                 message=f"Port {server.port} closed",
-                details={"host": server.host, "port": server.port, "check": "port"}
+                details={"host": server.host, "port": server.port, "check": "port"},
             )
         except Exception as e:
             return HealthResult(
@@ -791,14 +817,14 @@ class HealthChecker:
                 resource_type="server",
                 status=HealthStatus.UNKNOWN,
                 message=f"Error: {type(e).__name__}",
-                details={"host": server.host, "error": str(e)}
+                details={"host": server.host, "error": str(e)},
             )
 
     async def check_all(
         self,
         websites: list[WebsiteConfig],
         apps: list[AppConfig],
-        servers: list[ServerConfig]
+        servers: list[ServerConfig],
     ) -> dict[str, list[HealthResult]]:
         """Check all resources concurrently."""
         tasks = []
@@ -816,8 +842,7 @@ class HealthChecker:
 
         if tasks:
             check_results = await asyncio.gather(
-                *[task[1] for task in tasks],
-                return_exceptions=True
+                *[task[1] for task in tasks], return_exceptions=True
             )
 
             for i, result in enumerate(check_results):
@@ -828,7 +853,7 @@ class HealthChecker:
                         name="unknown",
                         resource_type=resource_type,
                         status=HealthStatus.UNKNOWN,
-                        message=f"Check failed: {type(result).__name__}"
+                        message=f"Check failed: {type(result).__name__}",
                     )
 
                 if resource_type == "website":
@@ -840,7 +865,9 @@ class HealthChecker:
 
         return results
 
-    def get_history(self, resource_type: str, name: str, limit: int = 10) -> list[HealthResult]:
+    def get_history(
+        self, resource_type: str, name: str, limit: int = 10
+    ) -> list[HealthResult]:
         """Get health check history for a resource."""
         key = f"{resource_type}:{name}"
         history = self._history.get(key, [])
@@ -873,5 +900,5 @@ class HealthChecker:
             "unhealthy": total_unhealthy,
             "degraded": total_degraded,
             "unknown": total_unknown,
-            "health_percent": (total_healthy / total * 100) if total > 0 else 0
+            "health_percent": (total_healthy / total * 100) if total > 0 else 0,
         }
