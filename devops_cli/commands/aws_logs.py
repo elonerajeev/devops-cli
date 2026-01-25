@@ -500,138 +500,7 @@ def list_ecs_tasks(
         error(f"AWS Error: {e.response['Error']['Message']}")
 
 
-# ==================== EC2 Commands ====================
-
-@app.command("ec2")
-def ec2_logs(
-    instance: str = typer.Argument(..., help="EC2 instance ID or name tag"),
-    log_type: str = typer.Option("system", "--type", "-t", help="Log type: system, application, cloud-init"),
-    since: str = typer.Option("1h", "--since", help="Time range"),
-    grep: Optional[str] = typer.Option(None, "--grep", "-g", help="Filter pattern"),
-    follow: bool = typer.Option(False, "--follow", "-F", help="Follow logs"),
-    
-    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
-):
-    """View EC2 instance logs from CloudWatch (requires CloudWatch agent)."""
-    session = get_aws_session(region)
-    ec2_client = session.client('ec2')
-    logs_client = session.client('logs')
-
-    # Resolve instance ID if name tag provided
-    if not instance.startswith("i-"):
-        response = ec2_client.describe_instances(
-            Filters=[{"Name": "tag:Name", "Values": [instance]}]
-        )
-        reservations = response.get("Reservations", [])
-        if reservations and reservations[0].get("Instances"):
-            instance = reservations[0]["Instances"][0]["InstanceId"]
-        else:
-            error(f"Instance with name '{instance}' not found")
-            return
-
-    header(f"EC2 Logs: {instance}")
-
-    # Common CloudWatch agent log group patterns
-    log_group_patterns = {
-        "system": f"/aws/ec2/{instance}/var/log/syslog",
-        "application": f"/aws/ec2/{instance}/var/log/application",
-        "cloud-init": f"/aws/ec2/{instance}/var/log/cloud-init",
-        "messages": f"/aws/ec2/{instance}/var/log/messages",
-    }
-
-    # Also check for common patterns
-    alternative_patterns = [
-        f"/ec2/{instance}",
-        f"/aws/ec2/{instance}",
-        instance,
-    ]
-
-    log_group = log_group_patterns.get(log_type)
-
-    # Try to find the log group
-    try:
-        response = logs_client.describe_log_groups(logGroupNamePrefix=f"/aws/ec2/{instance}")
-        groups = response.get("logGroups", [])
-
-        if groups:
-            info(f"Found log groups for instance:")
-            for g in groups[:5]:
-                console.print(f"  - {g['logGroupName']}")
-
-            if not log_group or not any(g["logGroupName"] == log_group for g in groups):
-                log_group = groups[0]["logGroupName"]
-
-        if not log_group:
-            warning(f"No CloudWatch log group found for instance {instance}")
-            info("Make sure CloudWatch agent is installed and configured")
-            info("\nTry viewing logs via SSH instead:")
-            console.print(f"  devops ssh run 'tail -100 /var/log/syslog' --server <server-name>")
-            return
-
-        info(f"Log Group: {log_group}")
-        console.print()
-
-        start_time = parse_time_range(since)
-        start_timestamp = int(start_time.timestamp() * 1000)
-
-        if follow:
-            _follow_cloudwatch_logs(logs_client, log_group, None, None, grep, start_timestamp)
-        else:
-            _fetch_cloudwatch_logs(logs_client, log_group, None, None, grep, start_timestamp, 200)
-
-    except ClientError as e:
-        error(f"AWS Error: {e.response['Error']['Message']}")
-
-
-@app.command("ec2-list")
-def list_ec2_instances(
-    
-    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
-):
-    """List EC2 instances with their status."""
-    session = get_aws_session(region)
-    ec2_client = session.client('ec2')
-
-    header("EC2 Instances")
-
-    try:
-        response = ec2_client.describe_instances()
-
-        table = create_table(
-            "",
-            [("Name", "cyan"), ("Instance ID", ""), ("State", ""), ("Type", "dim"), ("IP", "dim")]
-        )
-
-        for reservation in response["Reservations"]:
-            for instance in reservation["Instances"]:
-                instance_id = instance["InstanceId"]
-                state = instance["State"]["Name"]
-                instance_type = instance["InstanceType"]
-
-                # Get name tag
-                name = "-"
-                for tag in instance.get("Tags", []):
-                    if tag["Key"] == "Name":
-                        name = tag["Value"]
-                        break
-
-                # Get IP
-                ip = instance.get("PublicIpAddress") or instance.get("PrivateIpAddress") or "-"
-
-                table.add_row(
-                    name,
-                    instance_id,
-                    status_badge(state),
-                    instance_type,
-                    ip
-                )
-
-        console.print(table)
-
-    except ClientError as e:
-        error(f"AWS Error: {e.response['Error']['Message']}")
-
-
+# ==================== Search Commands ====================
 
 @app.command("search")
 def search_logs(
@@ -869,11 +738,6 @@ Add the following to your [bold]~/.devops-cli/config.yaml[/]:
 
   # Application configurations
   apps:
-    zinai:
-      # EC2 application
-      instance_id: "i-0123456789abcdef"
-      log_group: "/aws/ec2/zinai/application"
-
     zintellix:
       # ECS service
       cluster: "production-cluster"
@@ -890,7 +754,6 @@ Add the following to your [bold]~/.devops-cli/config.yaml[/]:
    - ecs:DescribeServices
    - ecs:DescribeTasks
    - ecs:ListTasks
-   - ec2:DescribeInstances
 
 2. Configure credentials:
    [dim]aws configure --profile dev-readonly[/]
@@ -899,7 +762,7 @@ Add the following to your [bold]~/.devops-cli/config.yaml[/]:
    [dim]devops aws groups --profile dev-readonly[/]
 
 [bold]Quick commands:[/]
-   devops aws zinai -F              # Follow ZinAI logs
+   devops aws cloudwatch <group>     # View any log group
    devops aws zintellix --since 2h  # Zintellix logs from last 2 hours
    devops aws errors                # View all errors
    devops aws search "ERROR"        # Search across all apps

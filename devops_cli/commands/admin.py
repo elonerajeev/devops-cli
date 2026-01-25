@@ -397,7 +397,7 @@ def add_app():
     app_name = Prompt.ask("Application name (e.g., api, backend, worker)")
     app_type = Prompt.ask(
         "Application type",
-        choices=["ecs", "ec2", "lambda", "kubernetes", "docker", "custom"],
+        choices=["ecs", "lambda", "kubernetes", "docker", "custom"],
         default="ecs"
     )
     description = Prompt.ask("Description", default=f"{app_name} application")
@@ -423,27 +423,6 @@ def add_app():
             "log_group": Prompt.ask("CloudWatch Log Group", default=f"/ecs/{app_name}"),
         }
 
-    elif app_type == "ec2":
-        app_config["ec2"] = {
-            "instance_id": Prompt.ask("EC2 Instance ID (or leave empty)", default=""),
-            "instance_name": Prompt.ask("EC2 Instance Name tag", default=app_name),
-            "region": Prompt.ask("AWS Region", default="us-east-1"),
-        }
-        log_type = Prompt.ask(
-            "Log source",
-            choices=["cloudwatch", "ssh", "both"],
-            default="cloudwatch"
-        )
-        if log_type in ["cloudwatch", "both"]:
-            app_config["logs"] = {
-                "type": "cloudwatch",
-                "log_group": Prompt.ask("CloudWatch Log Group", default=f"/ec2/{app_name}"),
-            }
-        if log_type in ["ssh", "both"]:
-            app_config["ssh_logs"] = {
-                "path": Prompt.ask("Log file path on server", default="/var/log/application.log"),
-            }
-
     elif app_type == "lambda":
         app_config["lambda"] = {
             "function_name": Prompt.ask("Lambda Function name", default=app_name),
@@ -460,8 +439,10 @@ def add_app():
             "deployment": Prompt.ask("Deployment name", default=app_name),
             "container": Prompt.ask("Container name (optional)", default=""),
         }
+        # K8s logs can be routed to CloudWatch, but for now we keep it simple
         app_config["logs"] = {
-            "type": "kubernetes",
+            "type": "cloudwatch",
+            "log_group": Prompt.ask("CloudWatch Log Group (K8s logs)"),
         }
 
     elif app_type == "docker":
@@ -469,26 +450,15 @@ def add_app():
             "container": Prompt.ask("Container name", default=app_name),
         }
         app_config["logs"] = {
-            "type": "docker",
+            "type": "cloudwatch",
+            "log_group": Prompt.ask("CloudWatch Log Group (Docker logs)"),
         }
 
     elif app_type == "custom":
-        log_type = Prompt.ask(
-            "Log source type",
-            choices=["cloudwatch", "file", "docker", "kubernetes", "command"],
-        )
+        log_type = "cloudwatch" # Restricted to cloudwatch as requested
         app_config["logs"] = {"type": log_type}
-
-        if log_type == "cloudwatch":
-            app_config["logs"]["log_group"] = Prompt.ask("CloudWatch Log Group")
-            app_config["logs"]["region"] = Prompt.ask("AWS Region", default="us-east-1")
-        elif log_type == "file":
-            app_config["logs"]["path"] = Prompt.ask("Log file path")
-            app_config["logs"]["server"] = Prompt.ask("Server name (from servers config)")
-        elif log_type == "docker":
-            app_config["logs"]["container"] = Prompt.ask("Container name")
-        elif log_type == "command":
-            app_config["logs"]["command"] = Prompt.ask("Command to run")
+        app_config["logs"]["log_group"] = Prompt.ask("CloudWatch Log Group")
+        app_config["logs"]["region"] = Prompt.ask("AWS Region", default="us-east-1")
 
     # Health check
     if Confirm.ask("Configure health check?", default=True):

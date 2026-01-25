@@ -870,59 +870,6 @@ async def fetch_cloudwatch_logs(log_group: str, region: str, lines: int = 100) -
         return {"success": False, "error": str(e), "hint": "Check your AWS configuration and network connectivity"}
 
 
-async def fetch_ec2_logs(instance_id: str, region: str, log_path: str = "/var/log/syslog") -> dict:
-    """Fetch logs from EC2 instance via SSM."""
-    try:
-        import boto3
-        from botocore.exceptions import ClientError, NoCredentialsError
-
-        ssm_client = boto3.client('ssm', region_name=region)
-
-        response = ssm_client.send_command(
-            InstanceIds=[instance_id],
-            DocumentName='AWS-RunShellScript',
-            Parameters={'commands': [f'tail -100 {log_path}']}
-        )
-
-        command_id = response['Command']['CommandId']
-
-        # Wait for command to complete
-        import time
-        for _ in range(10):
-            time.sleep(1)
-            result = ssm_client.get_command_invocation(
-                CommandId=command_id,
-                InstanceId=instance_id
-            )
-            if result['Status'] in ['Success', 'Failed']:
-                break
-
-        if result['Status'] == 'Success':
-            output = result.get('StandardOutputContent', '')
-            logs = []
-            for line in output.split('\n'):
-                if line.strip():
-                    level = 'INFO'
-                    if 'error' in line.lower():
-                        level = 'ERROR'
-                    elif 'warn' in line.lower():
-                        level = 'WARN'
-                    logs.append({
-                        "timestamp": datetime.now().isoformat(),
-                        "level": level,
-                        "message": line,
-                        "source": instance_id
-                    })
-            return {"success": True, "logs": logs, "source": "ec2"}
-
-        return {"success": False, "error": "Command failed", "hint": "Check SSM agent status on EC2 instance"}
-
-    except NoCredentialsError:
-        return {"success": False, "error": "AWS credentials not configured", "hint": "Run 'devops admin aws configure' to set up AWS access"}
-    except Exception as e:
-        return {"success": False, "error": str(e), "hint": "Ensure SSM agent is running on the EC2 instance"}
-
-
 def get_document_logs(app_name: str) -> dict:
     """Get logs from uploaded document."""
     metadata = get_documents_metadata()
@@ -1006,7 +953,7 @@ async def api_app_logs(
     source_preference: str = "auto",  # auto, live, document
     user: dict = Depends(require_auth)
 ):
-    """Get application logs with priority: live source > document > friendly message."""
+    """Get application logs with priority: live source (CloudWatch) > document > friendly message."""
     from devops_cli.commands.admin import load_apps_config
 
     config = load_apps_config()
@@ -1035,7 +982,7 @@ async def api_app_logs(
         "logs": [],
         "source_used": None,
         "document_available": False,
-        "live_source_available": bool(logs_config),
+        "live_source_available": bool(logs_config and log_type == "cloudwatch"),
         "message": None,
         "hint": None
     }
@@ -1048,43 +995,19 @@ async def api_app_logs(
 
     logs_fetched = False
 
-    # Try live source first (unless user prefers document)
-    if source_preference in ["auto", "live"] and logs_config:
-        if log_type == "cloudwatch":
-            log_group = logs_config.get("log_group")
-            region = logs_config.get("region", "us-east-1")
-            if log_group:
-                fetch_result = await fetch_cloudwatch_logs(log_group, region, lines)
-                if fetch_result.get("success"):
-                    result["logs"] = fetch_result["logs"]
-                    result["source_used"] = "cloudwatch"
-                    logs_fetched = True
-                else:
-                    result["live_error"] = fetch_result.get("error")
-                    result["hint"] = fetch_result.get("hint")
-
-        elif log_type == "ec2":
-            instance_id = logs_config.get("instance_id")
-            region = logs_config.get("region", "us-east-1")
-            log_path = logs_config.get("log_path", "/var/log/syslog")
-            if instance_id:
-                fetch_result = await fetch_ec2_logs(instance_id, region, log_path)
-                if fetch_result.get("success"):
-                    result["logs"] = fetch_result["logs"]
-                    result["source_used"] = "ec2"
-                    logs_fetched = True
-                else:
-                    result["live_error"] = fetch_result.get("error")
-                    result["hint"] = fetch_result.get("hint")
-
-        # For docker/kubernetes/pm2/file - require actual configuration
-        elif log_type in ["docker", "kubernetes", "pm2", "file"]:
-            # These require proper server/container configuration
-            result["logs"] = []
-            result["source_used"] = None
-            result["message"] = f"Log source '{log_type}' configured but connection not available."
-            result["hint"] = f"Admin: Configure {log_type} access credentials in app settings."
-            logs_fetched = False
+    # Try live source first (only CloudWatch supported)
+    if source_preference in ["auto", "live"] and log_type == "cloudwatch":
+        log_group = logs_config.get("log_group")
+        region = logs_config.get("region", "us-east-1")
+        if log_group:
+            fetch_result = await fetch_cloudwatch_logs(log_group, region, lines)
+            if fetch_result.get("success"):
+                result["logs"] = fetch_result["logs"]
+                result["source_used"] = "cloudwatch"
+                logs_fetched = True
+            else:
+                result["live_error"] = fetch_result.get("error")
+                result["hint"] = fetch_result.get("hint")
 
     # Try document if live source failed or user prefers document
     if not logs_fetched and (source_preference in ["auto", "document"]) and result["document_available"]:
@@ -1097,12 +1020,12 @@ async def api_app_logs(
 
     # Friendly message if nothing available
     if not logs_fetched:
-        if logs_config and result.get("live_error"):
+        if log_type == "cloudwatch" and result.get("live_error"):
             # Logs are configured but failed to fetch
             result["logs"] = [{
                 "timestamp": datetime.now().isoformat(),
                 "level": "ERROR",
-                "message": f"❌ Failed to fetch logs from {log_type}",
+                "message": f"❌ Failed to fetch logs from CloudWatch",
                 "source": "system"
             }, {
                 "timestamp": datetime.now().isoformat(),
@@ -1118,7 +1041,7 @@ async def api_app_logs(
                     "source": "system"
                 })
         else:
-            # No logs configured
+            # No logs configured or unsupported type
             result["logs"] = [{
                 "timestamp": datetime.now().isoformat(),
                 "level": "INFO",
@@ -1127,12 +1050,12 @@ async def api_app_logs(
             }, {
                 "timestamp": datetime.now().isoformat(),
                 "level": "INFO",
-                "message": "💡 Ask your admin to configure log sources or upload log documentation.",
+                "message": "💡 Ask your admin to configure CloudWatch log groups or upload log documentation.",
                 "source": "system"
             }, {
                 "timestamp": datetime.now().isoformat(),
                 "level": "INFO",
-                "message": f"📋 Supported sources: CloudWatch, EC2, Docker, Kubernetes, PM2, File",
+                "message": f"📋 Supported sources: CloudWatch, Uploaded Documents",
                 "source": "system"
             }]
         
@@ -1152,7 +1075,7 @@ async def api_app_logs(
 async def api_app_logs_stream(app_name: str, request: Request):
     """Stream application logs in real-time via SSE.
 
-    Fetches real logs from configured sources. Shows error message if source is unavailable.
+    Fetches real logs from CloudWatch. Shows error message if source is unavailable.
     """
     from devops_cli.commands.admin import load_apps_config
 
@@ -1165,8 +1088,8 @@ async def api_app_logs_stream(app_name: str, request: Request):
     app_config = apps[app_name]
     logs_config = app_config.get("logs", {})
     log_type = logs_config.get("type", "none")
-    log_group = app_config.get("log_group")  # CloudWatch log group
-    region = app_config.get("region", "us-east-1")
+    log_group = app_config.get("log_group") or logs_config.get("log_group")
+    region = app_config.get("region", "us-east-1") or logs_config.get("region", "us-east-1")
 
     async def log_generator():
         # Send initial status message
@@ -1179,13 +1102,12 @@ async def api_app_logs_stream(app_name: str, request: Request):
         yield f"data: {json.dumps(status_entry)}\n\n"
 
         # Check if CloudWatch log group is configured
-        if log_group:
+        if log_group and (log_type == "cloudwatch" or app_config.get("log_group")):
             try:
                 import boto3
                 from botocore.exceptions import ClientError, NoCredentialsError
 
                 client = boto3.client('logs', region_name=region)
-                last_token = None
 
                 while True:
                     if await request.is_disconnected():
@@ -1271,7 +1193,7 @@ async def api_app_logs_stream(app_name: str, request: Request):
             hint_entry = {
                 "timestamp": datetime.now().isoformat(),
                 "level": "INFO",
-                "message": f"[{app_name}] Admin: Configure 'log_group' in apps.yaml for CloudWatch streaming.",
+                "message": f"[{app_name}] Admin: Configure CloudWatch log group for streaming.",
                 "source": "system"
             }
             yield f"data: {json.dumps(hint_entry)}\n\n"
@@ -1279,7 +1201,7 @@ async def api_app_logs_stream(app_name: str, request: Request):
             supported_entry = {
                 "timestamp": datetime.now().isoformat(),
                 "level": "INFO",
-                "message": f"[{app_name}] Supported: CloudWatch (ECS/Lambda), EC2 SSM, Docker logs",
+                "message": f"[{app_name}] Supported: CloudWatch (ECS/Lambda/EC2)",
                 "source": "system"
             }
             yield f"data: {json.dumps(supported_entry)}\n\n"
@@ -1312,7 +1234,7 @@ async def api_server_logs(
     lines: int = 50,
     user: dict = Depends(require_auth)
 ):
-    """Get server logs (system, auth, application)."""
+    """Get server logs (primarily from documents)."""
     from devops_cli.commands.admin import load_servers_config
 
     config = load_servers_config()
@@ -1323,44 +1245,30 @@ async def api_server_logs(
 
     server = servers[server_name]
     host = server.get("host")
-    ssh_user = server.get("user", "ubuntu")
-    ssh_port = server.get("port", 22)
 
-    # Try to fetch real logs via SSH or show configuration message
     logs = []
     message = None
     hint = None
 
-    # Check if server has logs configuration
-    logs_config = server.get("logs", {})
-
-    if logs_config:
-        # Server has logs configured - try to fetch
-        # In production, this would SSH to server and fetch logs
-        message = f"Server logs configured. SSH connection to {host} required."
-        hint = "Ensure SSH keys are configured via 'devops ssh add-key'"
-    else:
-        # No logs configured
-        message = f"No logs configured for server '{server_name}'."
-        hint = "Admin: Add logs configuration to server in servers.yaml"
-
-    # Check for uploaded document
+    # Check for uploaded document (primary source for server logs now)
     doc_key = f"server_{server_name}"
     metadata = get_documents_metadata()
     doc_available = doc_key in metadata.get("documents", {})
 
     if doc_available:
-        doc_result = get_document_logs(server_name, "server")
+        doc_result = get_document_logs(doc_key) 
         if doc_result.get("success"):
             logs = doc_result["logs"]
             message = "Showing logs from uploaded document."
+    else:
+        message = f"No log documents uploaded for server '{server_name}'."
+        hint = "Admin: Upload log documentation for this server in the Documents section."
 
     return {
         "server": server_name,
         "host": host,
         "log_type": log_type,
         "logs": logs[:lines],
-        "available_types": ["system", "auth", "nginx", "docker", "application"],
         "message": message,
         "hint": hint,
         "document_available": doc_available

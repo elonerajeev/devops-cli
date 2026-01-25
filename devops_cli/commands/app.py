@@ -218,13 +218,6 @@ def app_info(
         console.print(f"  Service: {ecs.get('service', '-')}")
         console.print(f"  Region: {ecs.get('region', '-')}")
 
-    elif app_type == "ec2":
-        ec2 = app_config.get("ec2", {})
-        console.print("[bold cyan]EC2 Configuration:[/]")
-        console.print(f"  Instance ID: {ec2.get('instance_id', '-')}")
-        console.print(f"  Instance Name: {ec2.get('instance_name', '-')}")
-        console.print(f"  Region: {ec2.get('region', '-')}")
-
     elif app_type == "lambda":
         lam = app_config.get("lambda", {})
         console.print("[bold cyan]Lambda Configuration:[/]")
@@ -245,8 +238,6 @@ def app_info(
         console.print(f"  Type: {logs.get('type', '-')}")
         if logs.get("log_group"):
             console.print(f"  Log Group: {logs.get('log_group')}")
-        if logs.get("path"):
-            console.print(f"  Path: {logs.get('path')}")
 
     # Health check info
     health = app_config.get("health", {})
@@ -319,14 +310,9 @@ def app_logs(
 
     if log_type == "cloudwatch":
         _view_cloudwatch_logs(app_config, logs_config, since, follow, grep, limit)
-    elif log_type == "docker":
-        _view_docker_logs(logs_config, since, follow, grep, limit)
-    elif log_type == "kubernetes":
-        _view_kubernetes_logs(app_config, logs_config, since, follow, grep, limit)
-    elif log_type == "file":
-        _view_file_logs(app_config, logs_config, since, follow, grep, limit)
     else:
-        error(f"Unsupported log type: {log_type}")
+        error(f"Unsupported live log type: {log_type}")
+        info("Note: Uploaded documents can be viewed on the web dashboard.")
 
 
 def _view_cloudwatch_logs(app_config: dict, logs_config: dict, since: str, follow: bool, grep: str, limit: int):
@@ -341,8 +327,6 @@ def _view_cloudwatch_logs(app_config: dict, logs_config: dict, since: str, follo
     if not region:
         if app_config.get("ecs"):
             region = app_config["ecs"].get("region")
-        elif app_config.get("ec2"):
-            region = app_config["ec2"].get("region")
         elif app_config.get("lambda"):
             region = app_config["lambda"].get("region")
 
@@ -460,138 +444,6 @@ def _follow_cloudwatch(client, log_group: str, grep: str, start_timestamp: int):
         info("Stopped")
     except ClientError as e:
         error(f"AWS Error: {e}")
-
-
-def _view_docker_logs(logs_config: dict, since: str, follow: bool, grep: str, limit: int):
-    """View Docker container logs."""
-    import subprocess
-
-    container = logs_config.get("container")
-    if not container:
-        error("No container configured")
-        return
-
-    cmd = ["docker", "logs", "--tail", str(limit)]
-    if follow:
-        cmd.append("-f")
-
-    # Convert since to docker format
-    if since.endswith("m"):
-        cmd.extend(["--since", f"{since[:-1]}m"])
-    elif since.endswith("h"):
-        cmd.extend(["--since", f"{since[:-1]}h"])
-    elif since.endswith("d"):
-        cmd.extend(["--since", f"{int(since[:-1]) * 24}h"])
-
-    cmd.append(container)
-
-    try:
-        if grep:
-            # Pipe through grep
-            p1 = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            p2 = subprocess.Popen(["grep", "-i", grep], stdin=p1.stdout, stdout=sys.stdout)
-            p2.wait()
-        else:
-            subprocess.run(cmd)
-    except FileNotFoundError:
-        error("Docker not installed")
-    except KeyboardInterrupt:
-        console.print("\n")
-        info("Stopped")
-
-
-def _view_kubernetes_logs(app_config: dict, logs_config: dict, since: str, follow: bool, grep: str, limit: int):
-    """View Kubernetes pod logs."""
-    import subprocess
-
-    k8s = app_config.get("kubernetes", {})
-    namespace = k8s.get("namespace", "default")
-    deployment = k8s.get("deployment")
-    container = k8s.get("container")
-
-    if not deployment:
-        error("No deployment configured")
-        return
-
-    cmd = ["kubectl", "logs", f"--tail={limit}", "-n", namespace]
-
-    if follow:
-        cmd.append("-f")
-
-    if container:
-        cmd.extend(["-c", container])
-
-    # Use deployment selector
-    cmd.extend(["-l", f"app={deployment}"])
-
-    try:
-        if grep:
-            p1 = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            p2 = subprocess.Popen(["grep", "-i", grep], stdin=p1.stdout, stdout=sys.stdout)
-            p2.wait()
-        else:
-            subprocess.run(cmd)
-    except FileNotFoundError:
-        error("kubectl not installed")
-    except KeyboardInterrupt:
-        console.print("\n")
-        info("Stopped")
-
-
-def _view_file_logs(app_config: dict, logs_config: dict, since: str, follow: bool, grep: str, limit: int):
-    """View file logs (via SSH if server specified)."""
-    import subprocess
-
-    log_path = logs_config.get("path")
-    server_name = logs_config.get("server")
-
-    if not log_path:
-        error("No log path configured")
-        return
-
-    if server_name:
-        # Get server config
-        servers_config = load_servers_config()
-        server = servers_config.get("servers", {}).get(server_name)
-
-        if not server:
-            error(f"Server '{server_name}' not found")
-            return
-
-        # Build SSH command
-        host = server["host"]
-        user = server.get("user", "root")
-        port = server.get("port", 22)
-        key = server.get("key", "~/.ssh/id_rsa")
-
-        tail_cmd = f"tail -{limit}" + ("f" if follow else "") + f" {log_path}"
-        if grep:
-            tail_cmd += f" | grep -i '{grep}'"
-
-        ssh_cmd = ["ssh", "-i", str(Path(key).expanduser()), "-p", str(port), f"{user}@{host}", tail_cmd]
-
-        try:
-            subprocess.run(ssh_cmd)
-        except KeyboardInterrupt:
-            console.print("\n")
-            info("Stopped")
-    else:
-        # Local file
-        cmd = ["tail", f"-{limit}"]
-        if follow:
-            cmd.append("-f")
-        cmd.append(log_path)
-
-        try:
-            if grep:
-                p1 = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-                p2 = subprocess.Popen(["grep", "-i", grep], stdin=p1.stdout, stdout=sys.stdout)
-                p2.wait()
-            else:
-                subprocess.run(cmd)
-        except KeyboardInterrupt:
-            console.print("\n")
-            info("Stopped")
 
 
 # ==================== App Health ====================

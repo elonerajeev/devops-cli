@@ -38,23 +38,17 @@ class HealthCheckSchema(BaseModel):
 
 
 class LogConfigSchema(BaseModel):
-    type: str # cloudwatch, file, docker, kubernetes, command
+    type: str # cloudwatch
     log_group: Optional[str] = None
     region: Optional[str] = None
-    path: Optional[str] = None # For file type
-    server: Optional[str] = None # For file type, reference to server config
-    container: Optional[str] = None # For docker type
-    command: Optional[str] = None # For command type
-    namespace: Optional[str] = None # For kubernetes type
 
 
 class AppConfigSchema(BaseModel):
     name: str
-    type: str # ecs, ec2, lambda, kubernetes, docker, custom
+    type: str # ecs, lambda, kubernetes, docker, custom
     description: Optional[str] = None
     added_at: str
     ecs: Optional[Dict[str, Any]] = None
-    ec2: Optional[Dict[str, Any]] = None
     lambda_config: Optional[Dict[str, Any]] = Field(None, alias="lambda") # Use alias for "lambda" keyword
     kubernetes: Optional[Dict[str, Any]] = None
     docker: Optional[Dict[str, Any]] = None
