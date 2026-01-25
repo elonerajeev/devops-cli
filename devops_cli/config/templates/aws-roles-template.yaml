@@ -1,0 +1,70 @@
+# AWS Roles Configuration Template
+# =====================================
+# Define IAM roles for cross-account access and role-based permissions.
+#
+# Usage:
+#   1. Copy this file and fill in your actual values
+#   2. Run: devops admin aws-roles-import --file aws-roles.yaml
+#
+# SECRETS HANDLING:
+#   External IDs (if sensitive):
+#     external_id: ${AWS_SECRET:iam/external-ids/prod}
+#     external_id: ${ENV_VAR_NAME}
+#
+
+aws_roles:
+  # Production Read-Only Role
+  prod-readonly:
+    role_arn: arn:aws:iam::123456789012:role/DevOpsReadOnly
+    region: ap-south-1
+    external_id: ~  # Optional: use ~ for null/none
+    description: Read-only access for production logs and monitoring
+
+  # Production Admin Role (restricted)
+  prod-admin:
+    role_arn: arn:aws:iam::123456789012:role/DevOpsAdmin
+    region: ap-south-1
+    external_id: ${AWS_SECRET:iam/external-ids/prod-admin}
+    description: Admin access for production (restricted)
+
+  # Staging Environment Role
+  staging:
+    role_arn: arn:aws:iam::234567890123:role/DevOpsStagingAccess
+    region: ap-south-1
+    external_id: ~
+    description: Full access for staging environment
+
+  # Development Environment Role
+  dev:
+    role_arn: arn:aws:iam::345678901234:role/DevOpsDevAccess
+    region: us-east-1
+    external_id: ~
+    description: Development environment access
+
+  # Cross-Account Logging Role
+  logging:
+    role_arn: arn:aws:iam::456789012345:role/CentralizedLogging
+    region: us-east-1
+    external_id: logging-external-id-12345
+    description: Cross-account access to centralized logging
+
+  # DR Environment Role
+  disaster-recovery:
+    role_arn: arn:aws:iam::567890123456:role/DRAccess
+    region: eu-west-1
+    external_id: ~
+    description: Disaster recovery environment access
+
+# Notes:
+# - role_arn: Full ARN of the IAM role to assume
+# - region: AWS region for this role's resources
+# - external_id: Optional security feature for cross-account access
+# - description: Human-readable description
+#
+# Required IAM permissions for the role:
+#   - logs:DescribeLogGroups
+#   - logs:FilterLogEvents
+#   - logs:GetLogEvents
+#   - ec2:DescribeInstances (optional)
+#   - ecs:DescribeServices (for ECS apps)
+#   - lambda:GetFunction (for Lambda apps)

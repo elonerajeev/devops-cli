@@ -14,6 +14,10 @@ from devops_cli.utils.output import (
     success, error, warning, info, header,
     create_table, status_badge, console as out_console
 )
+from devops_cli.utils.github_helper import (
+    get_latest_commit, get_workflow_runs, get_workflow_jobs,
+    format_time_ago, get_status_emoji, get_status_color, get_status_message
+)
 
 app = typer.Typer(help="Git & CI/CD operations")
 console = Console()
@@ -259,9 +263,11 @@ def create_pr(
 def pipeline_status(
     repo_name: Optional[str] = typer.Option(None, "--repo", "-r", help="Configured repository name"),
     branch: Optional[str] = typer.Option(None, "--branch", "-b", help="Branch name"),
+    limit: int = typer.Option(10, "--limit", "-l", help="Number of runs to show"),
 ):
-    """Check CI/CD pipeline status (GitHub Actions).
+    """Check CI/CD pipeline status and history (GitHub Actions).
 
+    Shows current commit, pipeline status, and recent run history.
     Use --repo to specify a configured repository, or run inside a git repo.
     """
     config = load_config()
@@ -299,46 +305,88 @@ def pipeline_status(
             if not ok:
                 branch = "main"
 
-    header(f"Pipeline Status: {repo_full}")
-    info(f"Branch: {branch}")
+    header(f"CI/CD Pipeline: {repo_full}")
+    console.print(f"Branch: [cyan]{branch}[/]\n")
 
-    try:
-        # Get workflow runs
-        url = f"https://api.github.com/repos/{repo_full}/actions/runs"
-        params = {"branch": branch, "per_page": 5}
-        resp = requests.get(url, params=params, headers=get_github_headers(token))
+    # Get latest commit info
+    commit_info = get_latest_commit(owner, repo, branch, token)
+    if commit_info:
+        console.print(f"[bold]Latest Commit:[/]")
+        console.print(f"  ID:      [yellow]{commit_info['sha']}[/]")
+        console.print(f"  Message: {commit_info['message']}")
+        console.print(f"  Author:  {commit_info['author']}")
+        console.print(f"  Time:    {format_time_ago(commit_info['date'])}")
+        console.print()
+    else:
+        warning("Could not fetch commit info\n")
 
-        if resp.status_code == 200:
-            runs = resp.json().get("workflow_runs", [])
-            if not runs:
-                warning("No workflow runs found")
-                return
+    # Get workflow runs
+    ok, runs = get_workflow_runs(owner, repo, branch, limit, token)
 
-            table = create_table(
-                "Recent Workflow Runs",
-                [("Workflow", "cyan"), ("Status", ""), ("Conclusion", ""), ("Started", "dim")]
-            )
+    if not ok:
+        error("Failed to fetch workflow runs")
+        info("Make sure GitHub Actions is enabled for this repository")
+        return
 
-            for run in runs:
-                status = run["status"]
-                conclusion = run.get("conclusion") or "running"
-                started = run["created_at"][:16].replace("T", " ")
+    if not runs:
+        warning("No workflow runs found for this branch")
+        return
 
-                status_str = status_badge(conclusion if status == "completed" else status)
-                table.add_row(run["name"], status, status_str, started)
+    # Display workflow runs
+    table = create_table(
+        "Pipeline History",
+        [("", ""), ("Workflow", "cyan"), ("Status", ""), ("Commit", "dim"), ("Time", "dim")]
+    )
 
-            console.print(table)
+    for run in runs:
+        emoji = get_status_emoji(run["status"], run["conclusion"])
+        status_color = get_status_color(run["status"], run["conclusion"])
 
-            # Show latest run details
-            latest = runs[0]
-            if latest["status"] != "completed":
-                info(f"\nLatest run in progress: {latest['html_url']}")
-            elif latest.get("conclusion") == "failure":
-                error(f"\nLatest run failed: {latest['html_url']}")
+        if run["status"] == "completed":
+            status_text = run["conclusion"] or "unknown"
         else:
-            error(f"Failed to fetch workflow runs: {resp.status_code}")
-    except requests.RequestException as e:
-        error(f"Request failed: {e}")
+            status_text = run["status"]
+
+        table.add_row(
+            emoji,
+            run["name"][:30],
+            f"[{status_color}]{status_text}[/]",
+            run["head_sha"],
+            format_time_ago(run["updated_at"])
+        )
+
+    console.print(table)
+
+    # Show current status message
+    latest = runs[0]
+    status_msg = get_status_message(latest["status"], latest["conclusion"])
+    status_color = get_status_color(latest["status"], latest["conclusion"])
+
+    console.print()
+    console.print(f"[{status_color}]● {status_msg}[/]")
+
+    # Show failure details if latest run failed
+    if latest["status"] == "completed" and latest["conclusion"] == "failure":
+        console.print()
+        console.print("[red]Failure Details:[/]")
+        console.print(f"  Workflow: {latest['name']}")
+        console.print(f"  Run ID:   {latest['id']}")
+        console.print(f"  URL:      {latest['html_url']}")
+
+        # Try to get job details
+        jobs = get_workflow_jobs(owner, repo, latest["id"], token)
+        if jobs:
+            console.print("\n  Failed Jobs:")
+            for job in jobs:
+                if job.get("conclusion") == "failure":
+                    console.print(f"    - {job['name']}")
+
+    # Show in-progress details
+    elif latest["status"] in ["in_progress", "queued"]:
+        console.print(f"  URL: {latest['html_url']}")
+
+    console.print()
+    info(f"Total runs shown: {len(runs)}")
 
 
 @app.command("prs")
@@ -457,10 +505,13 @@ def trigger_workflow(
 
 
 @app.command("repos")
-def list_repos_command():
+def list_repos_command(
+    show_commits: bool = typer.Option(False, "--commits", "-c", help="Show latest commit info"),
+):
     """List all configured repositories.
 
     Shows repositories configured by admin for Git/CI operations.
+    Use --commits to see latest commit ID and message for each repo.
     """
     repos = load_repos()
 
@@ -471,30 +522,147 @@ def list_repos_command():
 
     header("Available Repositories")
 
-    table = create_table(
-        "",
-        [("Name", "cyan"), ("Owner/Repo", ""), ("Branch", "dim"), ("Description", "dim")]
-    )
+    # Get GitHub token if showing commits
+    token = None
+    if show_commits:
+        config = load_config()
+        token = config.get("github", {}).get("token")
+        if not token:
+            warning("GitHub token not configured - cannot show commits")
+            show_commits = False
+
+    if show_commits:
+        table = create_table(
+            "",
+            [("Name", "cyan"), ("Owner/Repo", ""), ("Commit", "yellow"), ("Message", "dim")]
+        )
+    else:
+        table = create_table(
+            "",
+            [("Name", "cyan"), ("Owner/Repo", ""), ("Branch", "dim"), ("Description", "dim")]
+        )
 
     for name, repo in repos.items():
         owner_repo = f"{repo['owner']}/{repo['repo']}"
         branch = repo.get("default_branch", "main")
-        description = repo.get("description", "")[:50]
 
-        table.add_row(
-            name,
-            owner_repo,
-            branch,
-            description
-        )
+        if show_commits and token:
+            # Fetch latest commit info
+            commit = get_latest_commit(repo['owner'], repo['repo'], branch, token)
+
+            if commit:
+                table.add_row(
+                    name,
+                    owner_repo,
+                    commit['sha'],
+                    commit['message'][:60]
+                )
+            else:
+                table.add_row(
+                    name,
+                    owner_repo,
+                    "[dim]N/A[/]",
+                    "[dim]Could not fetch[/]"
+                )
+        else:
+            description = repo.get("description", "")[:50]
+            table.add_row(
+                name,
+                owner_repo,
+                branch,
+                description
+            )
 
     console.print(table)
     info(f"\nTotal: {len(repos)} repositories")
+
+    if not show_commits:
+        info("Use --commits flag to see latest commit info for each repo")
+
     console.print()
     info("Use --repo flag with any git command:")
-    info("  devops git pipeline --repo backend")
-    info("  devops git prs --repo frontend")
-    info("  devops git pr --repo api --from feature-x --base main")
+    info("  devops git repo-info --repo backend    (show full repo details)")
+    info("  devops git pipeline --repo backend     (show CI/CD history)")
+    info("  devops git prs --repo frontend         (list pull requests)")
+    info("  devops git pr --repo api --from feature-x --base main  (create PR)")
+
+
+@app.command("repo-info")
+def repo_info(
+    repo_name: Optional[str] = typer.Option(None, "--repo", "-r", help="Configured repository name"),
+):
+    """Show detailed repository information with current commit.
+
+    Use --repo to specify a configured repository, or run inside a git repo.
+    """
+    config = load_config()
+    token = config.get("github", {}).get("token")
+
+    if not token:
+        error("GitHub token not configured")
+        info("Set GITHUB_TOKEN env var or add to config: devops init")
+        return
+
+    # Resolve repository
+    ok, owner, repo = resolve_repo(repo_name)
+
+    if not ok:
+        if repo_name:
+            error(f"Repository '{repo_name}' not found in configuration")
+        else:
+            error("Not in a git repository. Use --repo flag.")
+        return
+
+    repo_full = f"{owner}/{repo}"
+    repo_config = get_repo_config(repo_name) if repo_name else {}
+
+    header(f"Repository: {repo_full}")
+
+    # Show configured info
+    if repo_config:
+        console.print(f"[bold]Configuration:[/]")
+        console.print(f"  Name:        {repo_name}")
+        console.print(f"  Description: {repo_config.get('description', 'N/A')}")
+        console.print(f"  Language:    {repo_config.get('language', 'N/A')}")
+        console.print(f"  Branch:      {repo_config.get('default_branch', 'main')}")
+        console.print()
+
+    # Get latest commit for default branch
+    branch = repo_config.get("default_branch", "main") if repo_config else "main"
+
+    commit_info = get_latest_commit(owner, repo, branch, token)
+
+    if commit_info:
+        console.print(f"[bold]Latest Commit ({branch}):[/]")
+        console.print(f"  Commit ID:   [yellow]{commit_info['sha']}[/] ([dim]{commit_info['sha_full']}[/])")
+        console.print(f"  Message:     {commit_info['message']}")
+        console.print(f"  Author:      {commit_info['author']}")
+        console.print(f"  Time:        {format_time_ago(commit_info['date'])}")
+        console.print(f"  URL:         {commit_info['url']}")
+        console.print()
+    else:
+        warning("Could not fetch commit info\n")
+
+    # Show latest pipeline status
+    ok, runs = get_workflow_runs(owner, repo, branch, 1, token)
+
+    if ok and runs:
+        latest_run = runs[0]
+        status_color = get_status_color(latest_run["status"], latest_run["conclusion"])
+        emoji = get_status_emoji(latest_run["status"], latest_run["conclusion"])
+
+        console.print(f"[bold]Latest Pipeline:[/]")
+        console.print(f"  Status:      [{status_color}]{emoji} {latest_run['status']}[/]")
+
+        if latest_run["status"] == "completed":
+            console.print(f"  Result:      [{status_color}]{latest_run['conclusion']}[/]")
+
+        console.print(f"  Workflow:    {latest_run['name']}")
+        console.print(f"  Updated:     {format_time_ago(latest_run['updated_at'])}")
+        console.print()
+
+    info("Use 'devops git pipeline --repo <name>' for full pipeline history")
+    info("Use 'devops git prs --repo <name>' to see pull requests")
 
 
 @app.command("quick-commit")

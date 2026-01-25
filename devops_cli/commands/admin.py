@@ -16,9 +16,13 @@ import os
 import json
 import base64
 import hashlib
+import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List
+
+# Templates directory location
+TEMPLATES_DIR = Path(__file__).parent.parent / "config" / "templates"
 
 import typer
 import yaml
@@ -36,7 +40,14 @@ from devops_cli.config.repos import (
 )
 from devops_cli.config.aws_credentials import (
     save_aws_credentials, load_aws_credentials, delete_aws_credentials,
-    credentials_exist, get_credentials_info, validate_aws_credentials
+    credentials_exist, get_credentials_info, validate_aws_credentials,
+    import_from_dict
+)
+from devops_cli.config.loader import (
+    load_aws_credentials_yaml, validate_aws_credentials_yaml,
+    get_aws_credentials_template, import_aws_credentials_from_yaml,
+    get_aws_roles_template, validate_aws_roles_yaml, load_aws_roles_yaml,
+    get_users_template, validate_users_yaml, load_users_yaml
 )
 from devops_cli.config.websites import (
     load_websites_config, save_websites_config, get_website_config,
@@ -130,14 +141,16 @@ def admin_callback(ctx: typer.Context):
     check_admin_access(ctx)
 
 
-# Admin config paths
-ADMIN_CONFIG_DIR = Path.home() / ".devops-cli"
-APPS_CONFIG_FILE = ADMIN_CONFIG_DIR / "apps.yaml"
-SERVERS_CONFIG_FILE = ADMIN_CONFIG_DIR / "servers.yaml"
-WEBSITES_CONFIG_FILE = ADMIN_CONFIG_DIR / "websites.yaml"
-AWS_CONFIG_FILE = ADMIN_CONFIG_DIR / "aws.yaml"
-TEAMS_CONFIG_FILE = ADMIN_CONFIG_DIR / "teams.yaml"
-SECRETS_DIR = ADMIN_CONFIG_DIR / "secrets"
+# Import centralized config paths (no duplication)
+from devops_cli.config.loader import (
+    ADMIN_CONFIG_DIR, APPS_CONFIG_FILE, SERVERS_CONFIG_FILE,
+    WEBSITES_CONFIG_FILE, AWS_CONFIG_FILE, TEAMS_CONFIG_FILE,
+    SECRETS_DIR, ensure_admin_dirs,
+    load_apps_config, save_apps_config,
+    load_servers_config, save_servers_config,
+    load_aws_config, save_aws_config,
+    load_teams_config, save_teams_config
+)
 
 
 def ensure_admin_dirs():
@@ -347,6 +360,206 @@ def remove_aws_role(
     del config["roles"][name]
     save_aws_config(config)
     success(f"AWS role '{name}' removed")
+
+
+@app.command("aws-roles-import")
+def import_aws_roles(
+    file: str = typer.Option(..., "--file", "-f", help="Path to YAML file with AWS roles"),
+    merge: bool = typer.Option(True, "--merge/--replace", help="Merge with existing or replace all"),
+):
+    """Import AWS roles from a YAML file.
+
+    The YAML file should have the following format:
+
+        aws_roles:
+          dev-readonly:
+            role_arn: arn:aws:iam::123456789012:role/DevOpsReadOnly
+            region: us-east-1
+            external_id: optional-external-id
+            description: Read-only access for development
+
+    Example:
+        devops admin aws-roles-import --file aws-roles.yaml
+        devops admin aws-roles-import --file aws-roles.yaml --replace
+    """
+    header("Import AWS Roles from YAML")
+
+    file_path = Path(file)
+
+    # Check if file exists
+    if not file_path.exists():
+        error(f"File not found: {file}")
+        info("Create a template with: devops admin aws-roles-export-template --output aws-roles.yaml")
+        return
+
+    info(f"Loading roles from: {file}")
+    console.print()
+
+    # Load and validate
+    data = load_aws_roles_yaml(file_path)
+
+    if not data:
+        error("Could not load YAML file")
+        return
+
+    is_valid, error_msg = validate_aws_roles_yaml(data)
+    if not is_valid:
+        error(f"Validation failed: {error_msg}")
+        return
+
+    roles_to_import = data["aws_roles"]
+    role_count = len(roles_to_import)
+
+    info(f"Found {role_count} roles to import")
+    console.print()
+
+    # Show what will be imported
+    for name, role in roles_to_import.items():
+        console.print(f"  - {name}: {role.get('role_arn', 'N/A')[:50]}...")
+
+    console.print()
+
+    # Load existing config
+    config = load_aws_config()
+
+    if "roles" not in config:
+        config["roles"] = {}
+
+    existing_count = len(config["roles"])
+
+    if not merge and existing_count > 0:
+        warning(f"This will replace {existing_count} existing roles")
+        if not Confirm.ask("Continue?"):
+            info("Cancelled")
+            return
+        config["roles"] = {}
+
+    # Import roles
+    imported = 0
+    updated = 0
+
+    for name, role_data in roles_to_import.items():
+        if name in config["roles"]:
+            updated += 1
+        else:
+            imported += 1
+
+        config["roles"][name] = {
+            "role_arn": role_data["role_arn"],
+            "region": role_data["region"],
+            "external_id": role_data.get("external_id"),
+            "description": role_data.get("description", f"AWS role for {name}"),
+            "added_at": datetime.now().isoformat(),
+        }
+
+    save_aws_config(config)
+
+    success(f"AWS roles imported successfully!")
+    console.print()
+    if imported > 0:
+        info(f"  Added: {imported} new roles")
+    if updated > 0:
+        info(f"  Updated: {updated} existing roles")
+    console.print()
+    info("Developers can now use: devops aws --role <role-name>")
+
+
+@app.command("aws-roles-export-template")
+def export_aws_roles_template(
+    output: str = typer.Option("aws-roles-template.yaml", "--output", "-o", help="Output file path"),
+):
+    """Export a template YAML file for AWS roles.
+
+    This generates a template file with example roles that you can edit
+    and then import with 'aws-roles-import'.
+
+    Example:
+        devops admin aws-roles-export-template
+        devops admin aws-roles-export-template --output my-roles.yaml
+    """
+    header("Export AWS Roles Template")
+
+    output_path = Path(output)
+
+    # Check if file exists
+    if output_path.exists():
+        warning(f"File already exists: {output}")
+        if not Confirm.ask("Overwrite?"):
+            info("Cancelled")
+            return
+
+    # Get template content
+    template = get_aws_roles_template()
+
+    # Write template
+    try:
+        with open(output_path, "w") as f:
+            f.write(template)
+
+        success(f"Template exported to: {output}")
+        console.print()
+        info("Next steps:")
+        info(f"  1. Edit '{output}' with your AWS roles")
+        info(f"  2. Run: devops admin aws-roles-import --file {output}")
+        console.print()
+
+    except IOError as e:
+        error(f"Failed to write template: {e}")
+
+
+@app.command("aws-roles-export")
+def export_aws_roles(
+    output: str = typer.Option("aws-roles.yaml", "--output", "-o", help="Output file path"),
+):
+    """Export current AWS roles to a YAML file.
+
+    This exports your configured roles (without credentials) for backup or sharing.
+
+    Example:
+        devops admin aws-roles-export
+        devops admin aws-roles-export --output backup-roles.yaml
+    """
+    header("Export AWS Roles")
+
+    config = load_aws_config()
+    roles = config.get("roles", {})
+
+    if not roles:
+        warning("No AWS roles configured")
+        info("Add roles with: devops admin aws-add-role")
+        return
+
+    output_path = Path(output)
+
+    # Check if file exists
+    if output_path.exists():
+        warning(f"File already exists: {output}")
+        if not Confirm.ask("Overwrite?"):
+            info("Cancelled")
+            return
+
+    # Prepare export data
+    export_data = {"aws_roles": {}}
+
+    for name, role in roles.items():
+        export_data["aws_roles"][name] = {
+            "role_arn": role.get("role_arn"),
+            "region": role.get("region"),
+            "external_id": role.get("external_id"),
+            "description": role.get("description"),
+        }
+
+    # Write to file
+    try:
+        with open(output_path, "w") as f:
+            f.write(f"# AWS Roles Export - {datetime.now().isoformat()}\n")
+            f.write("# Re-import with: devops admin aws-roles-import --file " + output + "\n\n")
+            yaml.dump(export_data, f, default_flow_style=False, sort_keys=False)
+
+        success(f"Exported {len(roles)} roles to: {output}")
+
+    except IOError as e:
+        error(f"Failed to write file: {e}")
 
 
 @app.command("aws-set-credentials")
@@ -899,6 +1112,61 @@ def remove_server(
     success(f"Server '{name}' removed")
 
 
+@app.command("server-show")
+def show_server(
+    name: str = typer.Argument(..., help="Server name"),
+):
+    """Show detailed configuration for a server."""
+    config = load_servers_config()
+    servers = config.get("servers", {})
+
+    if name not in servers:
+        error(f"Server '{name}' not found")
+        return
+
+    server = servers[name]
+    header(f"Server: {name}")
+
+    console.print(yaml.dump(server, default_flow_style=False))
+
+
+@app.command("server-edit")
+def edit_server(
+    name: str = typer.Argument(..., help="Server name to edit"),
+):
+    """Edit a server configuration."""
+    import subprocess
+    import tempfile
+
+    config = load_servers_config()
+
+    if name not in config.get("servers", {}):
+        error(f"Server '{name}' not found")
+        return
+
+    # Write to temp file
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml.dump(config["servers"][name], f, default_flow_style=False)
+        temp_file = f.name
+
+    # Open in editor
+    editor = os.environ.get("EDITOR", "nano")
+    subprocess.run([editor, temp_file])
+
+    # Read back
+    with open(temp_file) as f:
+        updated = yaml.safe_load(f)
+
+    os.unlink(temp_file)
+
+    if Confirm.ask("Save changes?"):
+        config["servers"][name] = updated
+        save_servers_config(config)
+        success(f"Server '{name}' updated")
+    else:
+        info("Changes discarded")
+
+
 # ==================== Team Management ====================
 
 @app.command("team-add")
@@ -980,6 +1248,61 @@ def remove_team(
     del config["teams"][name]
     save_teams_config(config)
     success(f"Team '{name}' removed")
+
+
+@app.command("team-show")
+def show_team(
+    name: str = typer.Argument(..., help="Team name"),
+):
+    """Show detailed configuration for a team."""
+    config = load_teams_config()
+    teams = config.get("teams", {})
+
+    if name not in teams:
+        error(f"Team '{name}' not found")
+        return
+
+    team = teams[name]
+    header(f"Team: {name}")
+
+    console.print(yaml.dump(team, default_flow_style=False))
+
+
+@app.command("team-edit")
+def edit_team(
+    name: str = typer.Argument(..., help="Team name to edit"),
+):
+    """Edit a team configuration."""
+    import subprocess
+    import tempfile
+
+    config = load_teams_config()
+
+    if name not in config.get("teams", {}):
+        error(f"Team '{name}' not found")
+        return
+
+    # Write to temp file
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml.dump(config["teams"][name], f, default_flow_style=False)
+        temp_file = f.name
+
+    # Open in editor
+    editor = os.environ.get("EDITOR", "nano")
+    subprocess.run([editor, temp_file])
+
+    # Read back
+    with open(temp_file) as f:
+        updated = yaml.safe_load(f)
+
+    os.unlink(temp_file)
+
+    if Confirm.ask("Save changes?"):
+        config["teams"][name] = updated
+        save_teams_config(config)
+        success(f"Team '{name}' updated")
+    else:
+        info("Changes discarded")
 
 
 # ==================== Export/Import ====================
@@ -1156,6 +1479,133 @@ def admin_status():
     info("Config directory: " + str(ADMIN_CONFIG_DIR))
 
 
+# ==================== Templates Management ====================
+
+@app.command("templates")
+def manage_templates(
+    list_templates: bool = typer.Option(False, "--list", "-l", help="List available templates"),
+    copy_all: bool = typer.Option(False, "--copy", "-c", help="Copy all templates to current directory"),
+    copy_template: Optional[str] = typer.Option(None, "--copy-template", "-t", help="Copy specific template"),
+    show_path: bool = typer.Option(False, "--path", "-p", help="Show templates directory path"),
+    output_dir: str = typer.Option(".", "--output", "-o", help="Output directory for copied templates"),
+):
+    """Manage YAML configuration templates.
+
+    Templates are pre-configured YAML files with example values and documentation.
+    Copy them, fill in your actual values, and import them.
+
+    Examples:
+        devops admin templates --list              # List all templates
+        devops admin templates --copy              # Copy all to current dir
+        devops admin templates -t apps             # Copy only apps template
+        devops admin templates --path              # Show templates location
+    """
+    if not TEMPLATES_DIR.exists():
+        error(f"Templates directory not found: {TEMPLATES_DIR}")
+        return
+
+    # List available templates
+    template_files = list(TEMPLATES_DIR.glob("*-template.yaml"))
+
+    if show_path:
+        header("Templates Directory")
+        console.print(f"[cyan]{TEMPLATES_DIR}[/]")
+        console.print()
+        info("You can copy templates manually from this location.")
+        return
+
+    if list_templates or (not copy_all and not copy_template):
+        header("Available Configuration Templates")
+        console.print()
+
+        table = create_table(
+            "",
+            [("Template", "cyan"), ("Description", ""), ("Import Command", "dim")]
+        )
+
+        template_info = {
+            "apps": ("Applications (ECS, EC2, Lambda, etc.)", "devops admin import --file"),
+            "servers": ("SSH servers configuration", "devops admin import --file"),
+            "websites": ("Website health monitoring", "devops admin import --file"),
+            "teams": ("Team access control", "devops admin import --file"),
+            "repos": ("GitHub repositories", "devops admin import --file"),
+            "aws-roles": ("AWS IAM roles", "devops admin aws-roles-import --file"),
+            "aws-credentials": ("AWS credentials (sensitive!)", "devops admin aws-import --file"),
+            "users": ("Bulk user registration", "devops admin users-import --file"),
+        }
+
+        for tf in sorted(template_files):
+            name = tf.stem.replace("-template", "")
+            desc, cmd = template_info.get(name, ("Configuration", "devops admin import --file"))
+            table.add_row(name, desc, cmd)
+
+        console.print(table)
+        console.print()
+        info("Copy templates with: devops admin templates --copy")
+        info("Or copy specific: devops admin templates -t <name>")
+        return
+
+    output_path = Path(output_dir)
+    if not output_path.exists():
+        output_path.mkdir(parents=True, exist_ok=True)
+
+    if copy_template:
+        # Copy specific template
+        template_name = copy_template.lower().replace("-template", "").replace(".yaml", "")
+        template_file = TEMPLATES_DIR / f"{template_name}-template.yaml"
+
+        if not template_file.exists():
+            error(f"Template not found: {template_name}")
+            info("Available templates:")
+            for tf in template_files:
+                console.print(f"  - {tf.stem.replace('-template', '')}")
+            return
+
+        dest_file = output_path / f"{template_name}.yaml"
+
+        if dest_file.exists():
+            if not Confirm.ask(f"Overwrite existing {dest_file.name}?"):
+                info("Cancelled")
+                return
+
+        shutil.copy(template_file, dest_file)
+        success(f"Copied: {dest_file}")
+        console.print()
+        info(f"Edit '{dest_file}' with your values, then import it.")
+        return
+
+    if copy_all:
+        # Copy all templates
+        header("Copying All Templates")
+        console.print()
+
+        copied = 0
+        for tf in template_files:
+            name = tf.stem.replace("-template", "")
+            dest_file = output_path / f"{name}.yaml"
+
+            # Skip if exists and user doesn't want to overwrite
+            if dest_file.exists():
+                console.print(f"[yellow]Skipping[/] {name}.yaml (already exists)")
+                continue
+
+            shutil.copy(tf, dest_file)
+            console.print(f"[green]Copied[/] {name}.yaml")
+            copied += 1
+
+        console.print()
+        if copied > 0:
+            success(f"Copied {copied} templates to {output_path}")
+            console.print()
+            info("Next steps:")
+            info("  1. Edit each YAML file with your actual values")
+            info("  2. Import using the appropriate command")
+            info("  3. Delete sensitive files (aws-credentials.yaml) after import!")
+        else:
+            warning("No new templates copied (all already exist)")
+            info("Use --output to specify a different directory")
+
+
 # ==================== User Management ====================
 
 @app.command("user-add")
@@ -1291,6 +1741,254 @@ def reset_user_token(
 
     except ValueError as e:
         error(str(e))
+
+
+@app.command("users-import")
+def import_users(
+    file: str = typer.Option(..., "--file", "-f", help="Path to YAML file with users"),
+    skip_existing: bool = typer.Option(True, "--skip-existing/--fail-existing", help="Skip users that already exist"),
+):
+    """Import users from a YAML file (bulk registration).
+
+    The YAML file should have the following format:
+
+        users:
+          - email: admin@company.com
+            name: Admin User
+            role: admin
+            team: default
+
+          - email: dev@company.com
+            name: Developer
+            role: developer
+            team: backend
+
+    Tokens will be generated and displayed after import.
+    Share tokens securely with each user!
+
+    Example:
+        devops admin users-import --file users.yaml
+        devops admin users-import --file users.yaml --fail-existing
+    """
+    header("Import Users from YAML")
+
+    file_path = Path(file)
+
+    # Check if file exists
+    if not file_path.exists():
+        error(f"File not found: {file}")
+        info("Create a template with: devops admin users-export-template --output users.yaml")
+        return
+
+    info(f"Loading users from: {file}")
+    console.print()
+
+    # Load and validate
+    data = load_users_yaml(file_path)
+
+    if not data:
+        error("Could not load YAML file")
+        return
+
+    is_valid, error_msg = validate_users_yaml(data)
+    if not is_valid:
+        error(f"Validation failed: {error_msg}")
+        return
+
+    users_to_import = data["users"]
+    user_count = len(users_to_import)
+
+    info(f"Found {user_count} users to import")
+    console.print()
+
+    # Check for existing users
+    existing_users = {u["email"] for u in auth.list_users()}
+    new_users = [u for u in users_to_import if u["email"] not in existing_users]
+    duplicate_users = [u for u in users_to_import if u["email"] in existing_users]
+
+    if duplicate_users:
+        if skip_existing:
+            warning(f"Skipping {len(duplicate_users)} existing users:")
+            for u in duplicate_users:
+                console.print(f"  - {u['email']}")
+            console.print()
+        else:
+            error(f"Found {len(duplicate_users)} existing users. Use --skip-existing to skip them.")
+            for u in duplicate_users:
+                console.print(f"  - {u['email']}")
+            return
+
+    if not new_users:
+        warning("No new users to import (all already exist)")
+        return
+
+    info(f"Will import {len(new_users)} new users:")
+    for u in new_users:
+        console.print(f"  - {u['email']} ({u['role']})")
+    console.print()
+
+    if not Confirm.ask("Proceed with import?"):
+        info("Cancelled")
+        return
+
+    # Import users and collect tokens
+    console.print()
+    results = []
+
+    for user in new_users:
+        try:
+            token = auth.register_user(
+                email=user["email"],
+                name=user.get("name"),
+                role=user["role"],
+                team=user.get("team", "default")
+            )
+            results.append({
+                "email": user["email"],
+                "token": token,
+                "success": True
+            })
+            success(f"Registered: {user['email']}")
+
+        except ValueError as e:
+            results.append({
+                "email": user["email"],
+                "error": str(e),
+                "success": False
+            })
+            error(f"Failed: {user['email']} - {e}")
+
+    console.print()
+
+    # Summary
+    successful = [r for r in results if r["success"]]
+    failed = [r for r in results if not r["success"]]
+
+    header("Import Summary")
+
+    if successful:
+        console.print(f"[green]Successfully registered: {len(successful)} users[/]")
+        console.print()
+        console.print("[bold yellow]ACCESS TOKENS (share these securely with each user):[/]")
+        console.print()
+
+        table = create_table(
+            "",
+            [("Email", "cyan"), ("Token", "")]
+        )
+
+        for r in successful:
+            table.add_row(r["email"], r["token"])
+
+        console.print(table)
+        console.print()
+        warning("Tokens are shown only ONCE. Save them now!")
+
+    if failed:
+        console.print()
+        console.print(f"[red]Failed to register: {len(failed)} users[/]")
+        for r in failed:
+            console.print(f"  - {r['email']}: {r['error']}")
+
+
+@app.command("users-export-template")
+def export_users_template(
+    output: str = typer.Option("users-template.yaml", "--output", "-o", help="Output file path"),
+):
+    """Export a template YAML file for bulk user registration.
+
+    This generates a template file with example users that you can edit
+    and then import with 'users-import'.
+
+    Example:
+        devops admin users-export-template
+        devops admin users-export-template --output my-users.yaml
+    """
+    header("Export Users Template")
+
+    output_path = Path(output)
+
+    # Check if file exists
+    if output_path.exists():
+        warning(f"File already exists: {output}")
+        if not Confirm.ask("Overwrite?"):
+            info("Cancelled")
+            return
+
+    # Get template content
+    template = get_users_template()
+
+    # Write template
+    try:
+        with open(output_path, "w") as f:
+            f.write(template)
+
+        success(f"Template exported to: {output}")
+        console.print()
+        info("Next steps:")
+        info(f"  1. Edit '{output}' with your users")
+        info(f"  2. Run: devops admin users-import --file {output}")
+        console.print()
+
+    except IOError as e:
+        error(f"Failed to write template: {e}")
+
+
+@app.command("users-export")
+def export_users(
+    output: str = typer.Option("users.yaml", "--output", "-o", help="Output file path"),
+):
+    """Export current users to a YAML file (without tokens).
+
+    This exports your registered users for backup or documentation.
+    Tokens are NOT included for security reasons.
+
+    Example:
+        devops admin users-export
+        devops admin users-export --output backup-users.yaml
+    """
+    header("Export Users")
+
+    users = auth.list_users()
+
+    if not users:
+        warning("No users registered")
+        info("Add users with: devops admin user-add")
+        return
+
+    output_path = Path(output)
+
+    # Check if file exists
+    if output_path.exists():
+        warning(f"File already exists: {output}")
+        if not Confirm.ask("Overwrite?"):
+            info("Cancelled")
+            return
+
+    # Prepare export data
+    export_data = {"users": []}
+
+    for user in users:
+        export_data["users"].append({
+            "email": user["email"],
+            "name": user.get("name"),
+            "role": user.get("role", "developer"),
+            "team": user.get("team", "default"),
+        })
+
+    # Write to file
+    try:
+        with open(output_path, "w") as f:
+            f.write(f"# Users Export - {datetime.now().isoformat()}\n")
+            f.write("# NOTE: Tokens are NOT included for security.\n")
+            f.write("# To re-import, users will get NEW tokens.\n\n")
+            yaml.dump(export_data, f, default_flow_style=False, sort_keys=False)
+
+        success(f"Exported {len(users)} users to: {output}")
+        warning("Tokens are NOT included in export for security reasons")
+
+    except IOError as e:
+        error(f"Failed to write file: {e}")
 
 
 @app.command("audit-logs")
@@ -1685,6 +2383,43 @@ def refresh_repository(
     console.print(f"  Visibility: {github_data['visibility']}")
 
 
+@app.command("repo-edit")
+def edit_repository(
+    name: str = typer.Argument(..., help="Repository name to edit"),
+):
+    """Edit a repository configuration."""
+    import subprocess
+    import tempfile
+
+    repo = get_repo_config(name)
+    if not repo:
+        error(f"Repository '{name}' not found")
+        return
+
+    # Write to temp file
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        yaml.dump(repo, f, default_flow_style=False)
+        temp_file = f.name
+
+    # Open in editor
+    editor = os.environ.get("EDITOR", "nano")
+    subprocess.run([editor, temp_file])
+
+    # Read back
+    with open(temp_file) as f:
+        updated = yaml.safe_load(f)
+
+    os.unlink(temp_file)
+
+    if Confirm.ask("Save changes?"):
+        repos = load_repos()
+        repos[name] = updated
+        save_repos(repos)
+        success(f"Repository '{name}' updated")
+    else:
+        info("Changes discarded")
+
+
 # ==================== AWS Credentials Management ====================
 
 @app.command("aws-configure")
@@ -1692,6 +2427,7 @@ def configure_aws_credentials(
     access_key: Optional[str] = typer.Option(None, "--access-key", "-k", help="AWS Access Key ID"),
     secret_key: Optional[str] = typer.Option(None, "--secret-key", "-s", help="AWS Secret Access Key"),
     region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS Region"),
+    from_file: Optional[str] = typer.Option(None, "--from-file", "-f", help="Import from YAML file instead"),
 ):
     """Configure AWS credentials for CloudWatch log access.
 
@@ -1703,7 +2439,15 @@ def configure_aws_credentials(
     - logs:FilterLogEvents
     - logs:GetLogEvents
     - ec2:DescribeInstances (optional, for EC2 info)
+
+    You can also import from a YAML file:
+        devops admin aws-configure --from-file aws-credentials.yaml
     """
+    # If --from-file is provided, delegate to aws-import
+    if from_file:
+        import_aws_credentials(file=from_file, skip_validation=False)
+        return
+
     header("Configure AWS Credentials")
 
     info("These credentials will be used for CloudWatch log access.")
@@ -1839,3 +2583,211 @@ def remove_aws_credentials():
         info("Configure again with: devops admin aws-configure")
     else:
         error("Failed to remove credentials")
+
+
+@app.command("aws-import")
+def import_aws_credentials(
+    file: str = typer.Option(..., "--file", "-f", help="Path to YAML file with AWS credentials"),
+    skip_validation: bool = typer.Option(False, "--skip-validation", help="Skip AWS API validation (for CI/CD)"),
+):
+    """Import AWS credentials from a YAML file.
+
+    The YAML file should have the following format:
+
+        aws_credentials:
+          access_key: AKIAXXXXXXXXXXXXXXXXXX
+          secret_key: your-secret-access-key
+          region: ap-south-1
+          description: DevOps CLI AWS Access
+
+    Credentials are validated and then encrypted for secure storage.
+    The input YAML file is NOT stored by the CLI - delete it after import!
+
+    Example:
+        devops admin aws-import --file aws-credentials.yaml
+        devops admin aws-import --file creds.yaml --skip-validation
+    """
+    header("Import AWS Credentials from YAML")
+
+    file_path = Path(file)
+
+    # Check if file exists
+    if not file_path.exists():
+        error(f"File not found: {file}")
+        info("Create a template with: devops admin aws-export-template --output aws-credentials.yaml")
+        return
+
+    info(f"Loading credentials from: {file}")
+    console.print()
+
+    # Import and validate
+    if skip_validation:
+        warning("Skipping AWS API validation")
+        console.print()
+
+    success_result, error_msg, credentials = import_aws_credentials_from_yaml(
+        file_path,
+        skip_validation=skip_validation
+    )
+
+    if not success_result:
+        error(f"Import failed: {error_msg}")
+        console.print()
+        info("Check your YAML file format and credentials")
+        info("Generate a template with: devops admin aws-export-template")
+        return
+
+    if not skip_validation:
+        success("Credentials validated successfully with AWS!")
+        console.print()
+
+    # Check if credentials already exist
+    if credentials_exist():
+        warning("Existing AWS credentials will be replaced")
+        if not Confirm.ask("Continue?"):
+            info("Cancelled")
+            return
+        console.print()
+
+    # Save credentials (encrypted)
+    if import_from_dict(credentials):
+        success("AWS credentials imported and encrypted successfully!")
+        console.print()
+
+        # Show masked info
+        console.print(f"[bold]Region:[/] {credentials['region']}")
+        masked_key = f"{credentials['access_key'][:4]}...{credentials['access_key'][-4:]}"
+        console.print(f"[bold]Access Key:[/] {masked_key}")
+        console.print(f"[bold]Description:[/] {credentials.get('description', 'N/A')}")
+        console.print()
+
+        warning(f"SECURITY: Delete the input file '{file}' now!")
+        console.print()
+        info("Credentials are stored encrypted at:")
+        info("  ~/.devops-cli/.aws_credentials.enc")
+        console.print()
+        info("Developers can now use:")
+        info("  devops aws cloudwatch <log-group>")
+        info("  devops app logs <app-name>")
+    else:
+        error("Failed to save credentials")
+
+
+@app.command("aws-export-template")
+def export_aws_template(
+    output: str = typer.Option("aws-credentials-template.yaml", "--output", "-o", help="Output file path"),
+):
+    """Export a template YAML file for AWS credentials.
+
+    This generates a template file with placeholder values that you can edit
+    with your actual AWS credentials, then import with 'aws-import'.
+
+    Example:
+        devops admin aws-export-template
+        devops admin aws-export-template --output my-aws-creds.yaml
+    """
+    header("Export AWS Credentials Template")
+
+    output_path = Path(output)
+
+    # Check if file exists
+    if output_path.exists():
+        warning(f"File already exists: {output}")
+        if not Confirm.ask("Overwrite?"):
+            info("Cancelled")
+            return
+
+    # Get template content
+    template = get_aws_credentials_template()
+
+    # Write template
+    try:
+        with open(output_path, "w") as f:
+            f.write(template)
+
+        success(f"Template exported to: {output}")
+        console.print()
+        info("Next steps:")
+        info(f"  1. Edit '{output}' with your AWS credentials")
+        info(f"  2. Run: devops admin aws-import --file {output}")
+        info(f"  3. Delete '{output}' after successful import")
+        console.print()
+        warning("Never commit credential files to version control!")
+
+    except IOError as e:
+        error(f"Failed to write template: {e}")
+
+
+# ==================== Config Validation ====================
+
+@app.command("validate")
+def validate_config(
+    file: str = typer.Argument(..., help="YAML config file to validate"),
+    config_type: Optional[str] = typer.Option(None, "--type", "-t", help="Config type (auto-detected if not specified)")
+):
+    """Validate a YAML configuration file before importing.
+
+    Checks structure, required fields, and secret references.
+    Helps ensure your config is correct before importing.
+
+    Examples:
+        devops admin validate apps.yaml
+        devops admin validate servers.yaml --type servers
+        devops admin validate aws-credentials.yaml
+    """
+    from devops_cli.config.validator import validate_config_file, detect_config_type, ConfigType
+
+    file_path = Path(file)
+
+    if not file_path.exists():
+        error(f"File not found: {file}")
+        return
+
+    # Detect config type
+    if config_type:
+        try:
+            cfg_type = ConfigType(config_type.lower())
+        except ValueError:
+            error(f"Invalid config type: {config_type}")
+            info("Valid types: apps, servers, websites, teams, repos, aws_roles, aws_credentials, users")
+            return
+    else:
+        cfg_type = detect_config_type(file_path)
+        if not cfg_type:
+            error("Could not detect config type from filename or content")
+            info("Please specify --type explicitly")
+            info("Example: devops admin validate myfile.yaml --type apps")
+            return
+
+    header(f"Validating Configuration: {file}")
+    info(f"Type: {cfg_type.value}\n")
+
+    # Validate
+    result = validate_config_file(file_path, cfg_type)
+
+    # Display results
+    console.print(result.get_summary())
+
+    # Show import command if valid
+    if result.valid:
+        console.print()
+        console.print("[green bold]✓ Configuration is ready to import![/]")
+        console.print()
+        info("To import this configuration, run:")
+
+        if cfg_type == ConfigType.AWS_CREDENTIALS:
+            info(f"  devops admin aws-import --file {file}")
+        elif cfg_type == ConfigType.AWS_ROLES:
+            info(f"  devops admin aws-roles-import --file {file}")
+        elif cfg_type == ConfigType.USERS:
+            info(f"  devops admin users-import --file {file}")
+        else:
+            info(f"  devops admin import --file {file}")
+
+        # Security reminder for sensitive configs
+        if cfg_type == ConfigType.AWS_CREDENTIALS:
+            console.print()
+            warning("Remember to delete this file after import for security!")
+    else:
+        console.print()
+        console.print("[red bold]✗ Configuration has errors - fix them before importing[/]")

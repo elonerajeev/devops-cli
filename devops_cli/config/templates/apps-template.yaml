@@ -1,0 +1,91 @@
+# Applications Configuration Template
+# =====================================
+# Define your applications for log viewing, health checks, and monitoring.
+#
+# Usage:
+#   1. Copy this file and fill in your actual values
+#   2. Run: devops admin import --file apps.yaml
+#
+# CONFIG MANAGEMENT STRATEGIES:
+# =============================
+# You can choose between LOCAL or CENTRALIZED config management:
+#
+# 1. LOCAL SECRETS MANAGEMENT (Simple):
+#    - Store secrets in local files or environment variables
+#    - Good for: Development, small teams, simple setups
+#    - Example: key: ~/.ssh/id_rsa or key: ${MY_LOCAL_ENV_VAR}
+#
+# 2. CENTRALIZED CONFIG MANAGEMENT (Advanced):
+#    - Store secrets in AWS Secrets Manager or similar
+#    - Good for: Production, teams, compliance requirements
+#    - Example: key: ${AWS_SECRET:devops/ssh-keys/prod}
+#
+# SECRETS REFERENCE SYNTAX:
+#   ${ENV_VAR_NAME}           - Read from environment variable (local)
+#   ${AWS_SECRET:secret-name} - Read from AWS Secrets Manager (centralized)
+#   ${GITHUB_SECRET:name}     - Read from GitHub Secrets (CI/CD only)
+#   ~/path/to/file            - Local file path
+#   /absolute/path/to/file    - Absolute file path
+#
+
+organization: YourCompany
+
+apps:
+  # ECS Application Example
+  api-backend:
+    name: api-backend
+    type: ecs
+    description: Backend API Service
+    ecs:
+      cluster: production-cluster
+      service: api-backend-service
+      region: ap-south-1
+    logs:
+      type: cloudwatch
+      log_group: /ecs/api-backend
+    health:
+      type: http
+      url: https://api.example.com/health
+      expected_status: 200
+    aws_role: prod-readonly
+    teams:
+      - backend
+      - devops
+
+  # EC2 Application Example
+  web-server:
+    name: web-server
+    type: ec2
+    description: Web Server on EC2
+    ec2:
+      instance_id: i-0123456789abcdef0
+      instance_name: web-server-prod
+      region: ap-south-1
+    logs:
+      type: cloudwatch
+      log_group: /ec2/web-server
+    health:
+      type: http
+      url: https://www.example.com/health
+      expected_status: 200
+    teams:
+      - frontend
+
+  # Lambda Function Example
+  image-processor:
+    name: image-processor
+    type: lambda
+    description: Image Processing Lambda
+    lambda:
+      function_name: image-processor-prod
+      region: ap-south-1
+    logs:
+      type: cloudwatch
+      log_group: /aws/lambda/image-processor-prod
+    teams:
+      - backend
+
+# Supported Types:
+#   type: ecs | ec2 | lambda | kubernetes | docker | custom
+#   logs.type: cloudwatch | file | docker | kubernetes | command
+#   health.type: http | tcp | command | none

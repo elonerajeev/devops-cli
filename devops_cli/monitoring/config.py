@@ -120,7 +120,31 @@ class MonitoringConfig:
     def get_websites(self) -> list[WebsiteConfig]:
         """Get all monitored websites."""
         config = self._load_config()
-        return [WebsiteConfig(**w) for w in config.get("websites", []) if w.get("enabled", True)]
+        websites = config.get("websites", [])
+
+        # If monitoring.yaml is empty, load from admin websites config
+        if not websites:
+            try:
+                from devops_cli.config.websites import load_websites_config
+                admin_websites = load_websites_config()
+                # load_websites_config returns dict directly, not wrapped in "websites" key
+                if admin_websites:
+                    # Convert admin website format to monitoring format
+                    for name, site in admin_websites.items():
+                        websites.append({
+                            "name": name,
+                            "url": site.get("url", ""),
+                            "expected_status": site.get("expected_status", 200),
+                            "timeout": site.get("timeout", 10),
+                            "method": site.get("method", "GET"),
+                            "headers": site.get("headers", {}),
+                            "enabled": site.get("enabled", True)
+                        })
+            except Exception as e:
+                # Silently continue if admin config not available
+                pass
+
+        return [WebsiteConfig(**w) for w in websites if w.get("enabled", True)]
 
     def get_all_websites(self) -> list[WebsiteConfig]:
         """Get all websites including disabled."""
@@ -154,7 +178,36 @@ class MonitoringConfig:
     def get_apps(self) -> list[AppConfig]:
         """Get all monitored applications."""
         config = self._load_config()
-        return [AppConfig(**a) for a in config.get("apps", []) if a.get("enabled", True)]
+        apps = config.get("apps", [])
+
+        # If monitoring.yaml is empty, load from admin apps config
+        if not apps:
+            try:
+                from devops_cli.config.loader import load_apps_config
+                admin_apps = load_apps_config()
+                if admin_apps and admin_apps.get("apps"):
+                    # Convert admin app format to monitoring format
+                    for name, app in admin_apps["apps"].items():
+                        # Determine app type and identifier
+                        app_type = app.get("type", "custom")
+                        identifier = name
+
+                        # Try to get health endpoint
+                        health_endpoint = None
+                        if app.get("health", {}).get("url"):
+                            health_endpoint = app["health"]["url"]
+
+                        apps.append({
+                            "name": name,
+                            "type": app_type,
+                            "identifier": identifier,
+                            "health_endpoint": health_endpoint,
+                            "enabled": True
+                        })
+            except Exception:
+                pass
+
+        return [AppConfig(**a) for a in apps if a.get("enabled", True)]
 
     def get_all_apps(self) -> list[AppConfig]:
         """Get all apps including disabled."""
@@ -188,7 +241,29 @@ class MonitoringConfig:
     def get_servers(self) -> list[ServerConfig]:
         """Get all monitored servers."""
         config = self._load_config()
-        return [ServerConfig(**s) for s in config.get("servers", []) if s.get("enabled", True)]
+        servers = config.get("servers", [])
+
+        # If monitoring.yaml is empty, load from admin servers config
+        if not servers:
+            try:
+                from devops_cli.config.loader import load_servers_config
+                admin_servers = load_servers_config()
+                if admin_servers and admin_servers.get("servers"):
+                    # Convert admin server format to monitoring format
+                    for name, server in admin_servers["servers"].items():
+                        servers.append({
+                            "name": name,
+                            "host": server.get("host", ""),
+                            "port": server.get("port", 22),
+                            "check_type": "ping",  # Default to ping
+                            "ssh_user": server.get("user"),
+                            "ssh_key": server.get("key"),
+                            "enabled": True
+                        })
+            except Exception:
+                pass
+
+        return [ServerConfig(**s) for s in servers if s.get("enabled", True)]
 
     def get_all_servers(self) -> list[ServerConfig]:
         """Get all servers including disabled."""

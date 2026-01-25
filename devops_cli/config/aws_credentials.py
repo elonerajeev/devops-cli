@@ -215,3 +215,32 @@ def get_credentials_info() -> Optional[Dict[str, str]]:
         "description": creds.get("description", ""),
         "access_key_preview": masked_key
     }
+
+
+def import_from_dict(credentials: Dict[str, str]) -> bool:
+    """
+    Import AWS credentials from a dictionary.
+
+    This is used by YAML import functionality. Credentials are encrypted
+    and stored securely. This replaces any existing credentials.
+
+    Args:
+        credentials: Dict containing 'access_key', 'secret_key', 'region',
+                    and optionally 'description'
+
+    Returns:
+        True if saved successfully, False otherwise
+    """
+    required_keys = ["access_key", "secret_key", "region"]
+    missing = [k for k in required_keys if k not in credentials]
+
+    if missing:
+        print(f"Error: Missing required keys: {', '.join(missing)}")
+        return False
+
+    return save_aws_credentials(
+        access_key=credentials["access_key"],
+        secret_key=credentials["secret_key"],
+        region=credentials["region"],
+        description=credentials.get("description", "Imported credentials")
+    )

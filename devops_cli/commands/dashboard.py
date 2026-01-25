@@ -117,5 +117,8 @@ def dashboard_info():
 def dashboard_callback(ctx: typer.Context):
     """Web Dashboard for DevOps CLI."""
     if ctx.invoked_subcommand is None:
-        # Default to start command
-        start_dashboard(port=3000, host="127.0.0.1", reload=False)
+        # Default to start command - use env vars if available
+        import os
+        port = int(os.getenv("DASHBOARD_PORT", "3000"))
+        host = os.getenv("DASHBOARD_HOST", "127.0.0.1")
+        start_dashboard(port=port, host=host, reload=False)

@@ -28,24 +28,30 @@ CONFIG_DIR = Path.home() / ".devops-cli"
 # =============================================================================
 # SECURITY: CORS Configuration
 # =============================================================================
-# Load allowed origins from config or use secure defaults
+# Load allowed origins from config or environment
 def get_cors_origins() -> List[str]:
-    """Get allowed CORS origins from config file."""
+    """Get allowed CORS origins from config file or environment."""
+    # Check environment variable first
+    env_origins = os.getenv("DASHBOARD_CORS_ORIGINS")
+    if env_origins:
+        return [origin.strip() for origin in env_origins.split(",")]
+
+    # Check config file
     cors_file = CONFIG_DIR / "cors.json"
-    default_origins = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-    ]
     if cors_file.exists():
         try:
             with open(cors_file) as f:
                 config = json.load(f)
-                return config.get("allowed_origins", default_origins)
+                return config.get("allowed_origins", [])
         except Exception:
             pass
-    return default_origins
+
+    # Dynamic default based on environment
+    port = int(os.getenv("DASHBOARD_PORT", "3000"))
+    return [
+        f"http://localhost:{port}",
+        f"http://127.0.0.1:{port}",
+    ]
 
 ALLOWED_ORIGINS = get_cors_origins()
 
@@ -270,34 +276,73 @@ def load_activity() -> list:
     # Load from auth audit log
     audit_file = CONFIG_DIR / "auth" / "audit.log"
     if audit_file.exists():
-        with open(audit_file) as f:
-            for line in f:
+        try:
+            # Read all lines
+            with open(audit_file, "r") as f:
+                lines = f.readlines()
+            
+            # Truncate if more than 10 (as requested for performance)
+            if len(lines) > 10:
+                lines = lines[-10:]
                 try:
-                    entry = json.loads(line.strip())
-                    activities.append({
-                        "timestamp": entry.get("timestamp", ""),
-                        "type": entry.get("action", "").split("_")[0] if "_" in entry.get("action", "") else "system",
-                        "user": entry.get("email", entry.get("user", "system")),
-                        "action": entry.get("action", "").replace("_", " ").title(),
-                        "ip": entry.get("ip", "-"),
-                        "status": "success" if entry.get("success", True) else "failed"
-                    })
-                except:
+                    with open(audit_file, "w") as f:
+                        f.writelines(lines)
+                except Exception:
                     pass
+            
+            for line in lines:
+                try:
+                    # Fix: audit.log is pipe-separated, not JSON
+                    if "|" in line:
+                        entry_parts = line.strip().split(" | ")
+                        if len(entry_parts) >= 2:
+                            timestamp = entry_parts[0]
+                            action = entry_parts[1]
+                            email = entry_parts[2] if len(entry_parts) > 2 else "system"
+                            
+                            activities.append({
+                                "timestamp": timestamp,
+                                "type": action.split("_")[0].lower() if "_" in action else "system",
+                                "user": email,
+                                "action": action.replace("_", " ").title(),
+                                "ip": "-",
+                                "status": "success"
+                            })
+                    else:
+                        # Fallback for legacy JSON lines if any
+                        entry = json.loads(line.strip())
+                        activities.append({
+                            "timestamp": entry.get("timestamp", ""),
+                            "type": entry.get("action", "").split("_")[0] if "_" in entry.get("action", "") else "system",
+                            "user": entry.get("email", entry.get("user", "system")),
+                            "action": entry.get("action", "").replace("_", " ").title(),
+                            "ip": entry.get("ip", "-"),
+                            "status": "success" if entry.get("success", True) else "failed"
+                        })
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     # Load custom activity file
     if ACTIVITY_FILE.exists():
         with open(ACTIVITY_FILE) as f:
             activities.extend(json.load(f).get("activities", []))
+    
     # Sort by timestamp desc
     activities.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
-    return activities
+    return activities[:10] # Enforce overall limit
 
 def log_activity(activity_type: str, user: str, action: str, status: str = "success", ip: str = "-"):
     """Log an activity."""
     data = {"activities": []}
     if ACTIVITY_FILE.exists():
-        with open(ACTIVITY_FILE) as f:
-            data = json.load(f)
+        try:
+            with open(ACTIVITY_FILE) as f:
+                data = json.load(f)
+        except Exception:
+            pass
+            
     activity = {
         "timestamp": datetime.now().isoformat() + "Z",
         "type": activity_type,
@@ -307,7 +352,8 @@ def log_activity(activity_type: str, user: str, action: str, status: str = "succ
         "status": status
     }
     data["activities"].insert(0, activity)
-    data["activities"] = data["activities"][:500]  # Keep last 500
+    data["activities"] = data["activities"][:10]  # Keep last 10 as requested
+    
     ACTIVITY_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(ACTIVITY_FILE, "w") as f:
         json.dump(data, f, indent=2)
@@ -1715,6 +1761,78 @@ async def api_github_repos(user: dict = Depends(require_auth)):
         "cached": cached_repos is not None
     }
 
+@app.get("/api/github/repos/{owner}/{repo}/status")
+async def api_github_repo_status(owner: str, repo: str, user: dict = Depends(require_auth)):
+    """Fetch latest commit and CI status for a repository."""
+    import httpx
+
+    config = get_github_config()
+    token = config.get("github", {}).get("token", "")
+    
+    headers = {"Accept": "application/vnd.github.v3+json"}
+    if token:
+        headers["Authorization"] = f"token {token}"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            # 1. Get default branch (to know what to check)
+            repo_resp = await client.get(
+                f"https://api.github.com/repos/{owner}/{repo}",
+                headers=headers, timeout=5.0
+            )
+            if repo_resp.status_code != 200:
+                return {"error": "Repo not found"}
+            
+            default_branch = repo_resp.json().get("default_branch", "main")
+
+            # 2. Fetch latest commit on default branch
+            commit_resp = await client.get(
+                f"https://api.github.com/repos/{owner}/{repo}/commits/{default_branch}",
+                headers=headers, timeout=5.0
+            )
+            
+            commit_data = {}
+            if commit_resp.status_code == 200:
+                c = commit_resp.json()
+                commit_data = {
+                    "sha": c.get("sha", "")[:7],
+                    "message": c.get("commit", {}).get("message", ""),
+                    "author": c.get("commit", {}).get("author", {}).get("name", ""),
+                    "date": c.get("commit", {}).get("author", {}).get("date", ""),
+                    "html_url": c.get("html_url", "")
+                }
+
+            # 3. Fetch latest workflow run
+            # We look for the latest run on the default branch
+            runs_resp = await client.get(
+                f"https://api.github.com/repos/{owner}/{repo}/actions/runs?branch={default_branch}&per_page=1",
+                headers=headers, timeout=5.0
+            )
+
+            pipeline_data = {"status": "unknown"}
+            if runs_resp.status_code == 200:
+                runs = runs_resp.json().get("workflow_runs", [])
+                if runs:
+                    latest = runs[0]
+                    pipeline_data = {
+                        "status": latest.get("status", "unknown"),
+                        "conclusion": latest.get("conclusion", "unknown"), # success, failure, etc.
+                        "name": latest.get("name", ""),
+                        "html_url": latest.get("html_url", ""),
+                        "created_at": latest.get("created_at", "")
+                    }
+                else:
+                    pipeline_data = {"status": "no_runs", "conclusion": "neutral"}
+
+            return {
+                "repo": repo,
+                "commit": commit_data,
+                "pipeline": pipeline_data
+            }
+
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/api/github/config")
 async def api_github_config(user: dict = Depends(require_admin)):
     """Get GitHub configuration (admin only)."""
@@ -1948,8 +2066,14 @@ def create_app():
     return app
 
 
-def run_dashboard(host: str = "0.0.0.0", port: int = 3000, reload: bool = False):
-    """Run the dashboard server."""
+def run_dashboard(host: str = None, port: int = None, reload: bool = False):
+    """Run the dashboard server with dynamic defaults from environment."""
+    # Use environment variables if not provided
+    if host is None:
+        host = os.getenv("DASHBOARD_HOST", "0.0.0.0")
+    if port is None:
+        port = int(os.getenv("DASHBOARD_PORT", "3000"))
+
     uvicorn.run(
         "devops_cli.dashboard.app:app",
         host=host,
