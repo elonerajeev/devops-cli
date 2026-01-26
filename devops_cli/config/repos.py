@@ -4,9 +4,7 @@ import yaml
 import requests
 from pathlib import Path
 from typing import Optional, Dict, List
-from datetime import datetime
 import re
-
 
 REPOS_FILE = Path.home() / ".devops-cli" / "repos.yaml"
 
@@ -22,12 +20,15 @@ def validate_github_token(token: str) -> tuple[bool, Optional[str]]:
 
     # Check token format
     if not (token.startswith("ghp_") or token.startswith("github_pat_")):
-        return False, "Invalid token format. Token should start with 'ghp_' or 'github_pat_'"
+        return (
+            False,
+            "Invalid token format. Token should start with 'ghp_' or 'github_pat_'",
+        )
 
     # Verify token with GitHub API
     headers = {
         "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json"
+        "Accept": "application/vnd.github.v3+json",
     }
 
     try:
@@ -37,7 +38,10 @@ def validate_github_token(token: str) -> tuple[bool, Optional[str]]:
             # Check scopes
             scopes = resp.headers.get("X-OAuth-Scopes", "")
             if "repo" not in scopes:
-                return False, "Token lacks 'repo' scope. Please create a token with 'repo' access."
+                return (
+                    False,
+                    "Token lacks 'repo' scope. Please create a token with 'repo' access.",
+                )
             return True, None
         elif resp.status_code == 401:
             return False, "Invalid or expired token"
@@ -61,7 +65,10 @@ def validate_repo_name(name: str) -> tuple[bool, Optional[str]]:
 
     # Allow alphanumeric, dash, underscore, slash
     if not re.match(r"^[a-zA-Z0-9_\-/]+$", name):
-        return False, "Repository name can only contain letters, numbers, dash, underscore, and slash"
+        return (
+            False,
+            "Repository name can only contain letters, numbers, dash, underscore, and slash",
+        )
 
     if len(name) > 100:
         return False, "Repository name too long (max 100 characters)"
@@ -74,14 +81,14 @@ def sanitize_repo_input(value: str) -> str:
     if not value:
         return ""
     # Remove any potentially dangerous characters
-    return re.sub(r'[^\w\-/.]', '', value)
+    return re.sub(r"[^\w\-/.]", "", value)
 
 
 def ensure_repos_file():
     """Ensure repos.yaml exists."""
     REPOS_FILE.parent.mkdir(parents=True, exist_ok=True)
     if not REPOS_FILE.exists():
-        with open(REPOS_FILE, 'w') as f:
+        with open(REPOS_FILE, "w") as f:
             yaml.dump({"repos": {}}, f)
 
 
@@ -99,7 +106,7 @@ def load_repos() -> Dict:
 def save_repos(repos: Dict):
     """Save repositories to file."""
     ensure_repos_file()
-    with open(REPOS_FILE, 'w') as f:
+    with open(REPOS_FILE, "w") as f:
         yaml.dump({"repos": repos}, f, default_flow_style=False)
 
 
@@ -113,11 +120,7 @@ def add_repo(name: str, owner: str, repo: str, **extra) -> bool:
     """Add a repository to configuration."""
     repos = load_repos()
 
-    repos[name] = {
-        "owner": owner,
-        "repo": repo,
-        **extra
-    }
+    repos[name] = {"owner": owner, "repo": repo, **extra}
 
     save_repos(repos)
     return True
@@ -151,7 +154,7 @@ def fetch_repo_from_github(owner: str, repo: str, token: str) -> Optional[Dict]:
     url = f"https://api.github.com/repos/{owner}/{repo}"
     headers = {
         "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json"
+        "Accept": "application/vnd.github.v3+json",
     }
 
     try:
@@ -175,12 +178,18 @@ def fetch_repo_from_github(owner: str, repo: str, token: str) -> Optional[Dict]:
         elif resp.status_code == 403:
             # Check if rate limited
             if "rate limit" in resp.text.lower():
-                return {"error": "rate_limit", "message": "GitHub API rate limit exceeded"}
+                return {
+                    "error": "rate_limit",
+                    "message": "GitHub API rate limit exceeded",
+                }
             return {"error": "forbidden", "message": "Access forbidden"}
         elif resp.status_code == 401:
             return {"error": "unauthorized", "message": "Invalid or expired token"}
         else:
-            return {"error": "api_error", "message": f"GitHub API error: {resp.status_code}"}
+            return {
+                "error": "api_error",
+                "message": f"GitHub API error: {resp.status_code}",
+            }
 
     except requests.Timeout:
         return {"error": "timeout", "message": "Request timed out"}
@@ -204,7 +213,7 @@ def discover_org_repos(org: str, token: str) -> List[Dict]:
     url = f"https://api.github.com/orgs/{org}/repos"
     headers = {
         "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json"
+        "Accept": "application/vnd.github.v3+json",
     }
 
     all_repos = []
@@ -221,17 +230,19 @@ def discover_org_repos(org: str, token: str) -> List[Dict]:
                     break
 
                 for repo in repos:
-                    all_repos.append({
-                        "name": repo["name"],
-                        "owner": org,
-                        "description": repo.get("description", "No description"),
-                        "default_branch": repo.get("default_branch", "main"),
-                        "visibility": repo.get("visibility", "private"),
-                        "private": repo.get("private", True),
-                        "language": repo.get("language", "Unknown"),
-                        "created_at": repo.get("created_at", ""),
-                        "url": repo.get("html_url", ""),
-                    })
+                    all_repos.append(
+                        {
+                            "name": repo["name"],
+                            "owner": org,
+                            "description": repo.get("description", "No description"),
+                            "default_branch": repo.get("default_branch", "main"),
+                            "visibility": repo.get("visibility", "private"),
+                            "private": repo.get("private", True),
+                            "language": repo.get("language", "Unknown"),
+                            "created_at": repo.get("created_at", ""),
+                            "url": repo.get("html_url", ""),
+                        }
+                    )
 
                 page += 1
 
@@ -264,10 +275,10 @@ def discover_user_repos(username: str, token: str) -> List[Dict]:
 
     Returns list of repos with metadata.
     """
-    url = f"https://api.github.com/user/repos"
+    url = "https://api.github.com/user/repos"
     headers = {
         "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json"
+        "Accept": "application/vnd.github.v3+json",
     }
 
     all_repos = []
@@ -279,7 +290,7 @@ def discover_user_repos(username: str, token: str) -> List[Dict]:
                 "page": page,
                 "per_page": 100,
                 "type": "all",  # all, owner, member
-                "affiliation": "owner,collaborator,organization_member"
+                "affiliation": "owner,collaborator,organization_member",
             }
             resp = requests.get(url, headers=headers, params=params, timeout=15)
 
@@ -289,17 +300,19 @@ def discover_user_repos(username: str, token: str) -> List[Dict]:
                     break
 
                 for repo in repos:
-                    all_repos.append({
-                        "name": repo["name"],
-                        "owner": repo["owner"]["login"],
-                        "description": repo.get("description", "No description"),
-                        "default_branch": repo.get("default_branch", "main"),
-                        "visibility": repo.get("visibility", "private"),
-                        "private": repo.get("private", True),
-                        "language": repo.get("language", "Unknown"),
-                        "created_at": repo.get("created_at", ""),
-                        "url": repo.get("html_url", ""),
-                    })
+                    all_repos.append(
+                        {
+                            "name": repo["name"],
+                            "owner": repo["owner"]["login"],
+                            "description": repo.get("description", "No description"),
+                            "default_branch": repo.get("default_branch", "main"),
+                            "visibility": repo.get("visibility", "private"),
+                            "private": repo.get("private", True),
+                            "language": repo.get("language", "Unknown"),
+                            "created_at": repo.get("created_at", ""),
+                            "url": repo.get("html_url", ""),
+                        }
+                    )
 
                 page += 1
 

@@ -1,12 +1,11 @@
 """
 Stores for handling data persistence for authentication.
 """
-import json
-import os
+
 from pathlib import Path
 from typing import Dict, Optional
 
-from devops_cli.auth.utils import _ensure_auth_dir, _load_json, _save_json, AUTH_DIR
+from devops_cli.auth.utils import _load_json, _save_json, AUTH_DIR
 
 # File paths
 USERS_FILE = AUTH_DIR / "users.json"
@@ -53,7 +52,7 @@ class UserStore:
             raise ValueError(f"User '{email}' not found")
         users[email].update(user_data)
         self._save()
-        
+
     def remove_user(self, email: str):
         """Remove a user."""
         users = self._load()
@@ -98,7 +97,7 @@ class SessionStore:
         if session_token in sessions:
             del sessions[session_token]
             self._save()
-            
+
     def remove_user_sessions(self, email: str):
         """Remove all sessions for a given user."""
         sessions = self._load()
@@ -107,7 +106,7 @@ class SessionStore:
         ]
         if not tokens_to_remove:
             return
-            
+
         for token in tokens_to_remove:
             del sessions[token]
         self._save()

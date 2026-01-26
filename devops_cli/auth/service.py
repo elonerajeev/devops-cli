@@ -1,13 +1,13 @@
 """
 Authentication service providing business logic for auth operations.
 """
+
 import hashlib
 import secrets
 from datetime import datetime, timedelta
-from typing import Optional, Dict
+from typing import Optional
 
 from devops_cli.auth.stores import UserStore, SessionStore
-
 
 # Security settings
 TOKEN_PREFIX = "DVC"
@@ -34,12 +34,23 @@ def _generate_salt() -> str:
 class AuthService:
     """Service for authentication business logic."""
 
-    def __init__(self, user_store: UserStore, session_store: SessionStore, current_user: Optional[str] = "system"):
+    def __init__(
+        self,
+        user_store: UserStore,
+        session_store: SessionStore,
+        current_user: Optional[str] = "system",
+    ):
         self._user_store = user_store
         self._session_store = session_store
         self._current_user = current_user
 
-    def register_user(self, email: str, name: str = None, role: str = "developer", team: str = "default") -> str:
+    def register_user(
+        self,
+        email: str,
+        name: str = None,
+        role: str = "developer",
+        team: str = "default",
+    ) -> str:
         """Register a new user and return their token."""
         token = _generate_token()
         salt = _generate_salt()
@@ -81,14 +92,16 @@ class AuthService:
             "name": user.get("name"),
             "role": user.get("role"),
             "created_at": datetime.now().isoformat(),
-            "expires_at": (datetime.now() + timedelta(hours=SESSION_EXPIRY_HOURS)).isoformat(),
+            "expires_at": (
+                datetime.now() + timedelta(hours=SESSION_EXPIRY_HOURS)
+            ).isoformat(),
         }
         self._session_store.add_session(session_token, session_data)
 
         # Update last login
         user["last_login"] = datetime.now().isoformat()
         self._user_store.update_user(email, user)
-        
+
         return session_token
 
     def reset_token(self, email: str) -> str:
@@ -96,7 +109,7 @@ class AuthService:
         user = self._user_store.get_user(email)
         if not user:
             raise ValueError(f"User '{email}' not found")
-            
+
         token = _generate_token()
         salt = _generate_salt()
         token_hash = _hash_token(token, salt)
@@ -104,8 +117,8 @@ class AuthService:
         user["token_hash"] = token_hash
         user["salt"] = salt
         self._user_store.update_user(email, user)
-        
+
         # Invalidate existing sessions
         self._session_store.remove_user_sessions(email)
-        
+
         return token

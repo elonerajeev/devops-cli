@@ -7,10 +7,10 @@ A powerful, template-based command-line tool for DevOps workflows. Built for sta
 - **Real-time Monitoring Dashboard** - PM2 monit-like dashboard for websites, apps, and servers
 - **Authentication System** - Token-based auth with role separation (Admin/Developer)
 - **Dynamic Configuration** - Admin configures once, developers just use
-- **AWS Integration** - CloudWatch logs, ECS, EC2 with IAM role assumption
+- **AWS Integration** - CloudWatch logs with IAM role assumption
 - **Git & CI/CD** - PR creation, pipeline status, workflow triggers
 - **SSH Management** - Multi-server commands, secure connections
-- **Health Checks** - HTTP, TCP, Docker, Kubernetes health monitoring
+- **Health Checks** - HTTP, TCP, Command health monitoring
 - **Secrets Management** - Encrypted storage, .env file management
 
 ## Quick Start
@@ -98,7 +98,6 @@ devops app info <app>   # Show app details
 devops monitor                    # Live dashboard (like PM2 monit)
 devops monitor --once             # Single check
 devops monitor add-website -n mysite -u https://example.com
-devops monitor add-app -n myapp -t docker -i container-name
 devops monitor add-server -n web1 -H 10.0.1.10
 devops monitor list               # List monitored resources
 ```

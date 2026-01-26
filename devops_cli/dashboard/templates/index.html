@@ -60,54 +60,58 @@
             <!-- Navigation -->
             <nav class="flex-1 p-4 space-y-2 overflow-y-auto">
                 <p class="text-xs text-gray-500 uppercase tracking-wider px-4 mb-2">Main</p>
-                <a href="#" onclick="showSection('overview')" class="sidebar-item active flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="overview">
+                <a href="#" onclick="showSection('overview'); return false;" class="sidebar-item active flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="overview">
                     <i class="fas fa-chart-pie w-5 mr-3 text-primary"></i>
                     <span>Overview</span>
                 </a>
-                <a href="#" onclick="showSection('monitoring')" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="monitoring">
+                <a href="#" onclick="showSection('monitoring'); return false;" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="monitoring">
                     <i class="fas fa-heartbeat w-5 mr-3 text-success"></i>
                     <span>Monitoring</span>
                 </a>
 
                 <p class="text-xs text-gray-500 uppercase tracking-wider px-4 mb-2 mt-4">Resources</p>
-                <a href="#" onclick="showSection('apps')" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="apps">
+                <a href="#" onclick="showSection('apps'); return false;" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="apps">
                     <i class="fas fa-cube w-5 mr-3 text-accent"></i>
                     <span>Applications</span>
                 </a>
-                <a href="#" onclick="showSection('servers')" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="servers">
+                <a href="#" onclick="showSection('servers'); return false;" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="servers">
                     <i class="fas fa-server w-5 mr-3 text-warning"></i>
                     <span>Servers</span>
                 </a>
-                <a href="#" onclick="showSection('websites')" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="websites">
+                <a href="#" onclick="showSection('websites'); return false;" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="websites">
                     <i class="fas fa-globe w-5 mr-3 text-accent"></i>
                     <span>Websites</span>
                 </a>
-                <a href="#" onclick="showSection('deployments')" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="deployments">
+                <a href="#" onclick="showSection('deployments'); return false;" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="deployments">
                     <i class="fas fa-rocket w-5 mr-3 text-pink-500"></i>
                     <span>Deployments</span>
                 </a>
-                <a href="#" onclick="showSection('repos')" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="repos">
+                <a href="#" onclick="showSection('repos'); return false;" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="repos">
                     <i class="fab fa-github w-5 mr-3 text-white"></i>
                     <span>Repositories</span>
                 </a>
+                <a href="#" onclick="showSection('security'); return false;" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="security">
+                    <i class="fas fa-shield-alt w-5 mr-3 text-red-500"></i>
+                    <span>Security</span>
+                </a>
 
                 <p class="text-xs text-gray-500 uppercase tracking-wider px-4 mb-2 mt-4">Observability</p>
-                <a href="#" onclick="showSection('logs')" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="logs">
+                <a href="#" onclick="showSection('logs'); return false;" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="logs">
                     <i class="fas fa-scroll w-5 mr-3 text-emerald-500"></i>
                     <span>Logs</span>
                 </a>
-                <a href="#" onclick="showSection('activity')" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="activity">
+                <a href="#" onclick="showSection('activity'); return false;" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="activity">
                     <i class="fas fa-history w-5 mr-3 text-blue-400"></i>
                     <span>Activity</span>
                 </a>
 
                 {% if user.role == 'admin' %}
                 <p class="text-xs text-gray-500 uppercase tracking-wider px-4 mb-2 mt-4">Admin</p>
-                <a href="#" onclick="showSection('users')" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="users">
+                <a href="#" onclick="showSection('users'); return false;" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="users">
                     <i class="fas fa-users w-5 mr-3 text-secondary"></i>
                     <span>Users</span>
                 </a>
-                <a href="#" onclick="showSection('documents')" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="documents">
+                <a href="#" onclick="showSection('documents'); return false;" class="sidebar-item flex items-center px-4 py-3 rounded-xl text-gray-300 hover:text-white transition-all" data-section="documents">
                     <i class="fas fa-file-alt w-5 mr-3 text-orange-500"></i>
                     <span>Documents</span>
                 </a>
@@ -142,6 +146,18 @@
                         <h2 id="pageTitle" class="text-xl font-bold">Overview</h2>
                         <p class="text-sm text-gray-500">Welcome back, {{ user.name }}</p>
                     </div>
+                    
+                    <!-- Global Search -->
+                    <div class="flex-1 max-w-md mx-8">
+                        <div class="relative group">
+                            <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-primary transition-colors"></i>
+                            <input type="text" id="globalSearch" onkeyup="debounceSearch()" placeholder="Search apps, servers, repos... (Ctrl+K)" class="w-full bg-gray-900/50 border border-gray-700 rounded-2xl py-2 pl-12 pr-4 focus:outline-none focus:border-primary transition-all">
+                            <div id="searchResults" class="hidden absolute top-full left-0 right-0 mt-2 bg-gray-800 border border-gray-700 rounded-xl shadow-2xl z-50 max-h-96 overflow-y-auto">
+                                <!-- Results populate here -->
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="flex items-center space-x-4">
                         <div class="flex items-center space-x-2 text-sm text-gray-400">
                             <i class="fas fa-clock"></i>
@@ -207,53 +223,101 @@
                     </div>
 
                     <!-- Quick Status -->
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                         <!-- Monitoring Status -->
                         <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
-                            <h3 class="text-lg font-semibold mb-4 flex items-center">
-                                <i class="fas fa-heartbeat text-success mr-2"></i>
-                                Live Status
-                            </h3>
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-lg font-semibold flex items-center">
+                                    <i class="fas fa-heartbeat text-success mr-2"></i>
+                                    Live Infrastructure Status
+                                </h3>
+                                <div class="flex items-center space-x-2">
+                                    <span class="w-2 h-2 bg-success rounded-full animate-ping"></span>
+                                    <span class="text-[10px] text-gray-500 uppercase tracking-widest">Live</span>
+                                </div>
+                            </div>
                             <div id="live-status" class="space-y-3">
                                 <div class="flex items-center justify-center py-8 text-gray-500">
                                     <i class="fas fa-spinner fa-spin mr-2"></i>
-                                    Loading...
+                                    Connecting to infrastructure...
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Recent Activity / Quick Actions -->
+                        <!-- Health Trend -->
                         <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
                             <h3 class="text-lg font-semibold mb-4 flex items-center">
-                                <i class="fas fa-bolt text-warning mr-2"></i>
-                                Quick Actions
+                                <i class="fas fa-chart-line text-accent mr-2"></i>
+                                Global Health Trend
                             </h3>
-                            <div class="grid grid-cols-2 gap-4">
-                                <button onclick="showSection('monitoring')" class="p-4 bg-gray-700/50 rounded-xl hover:bg-gray-700 transition-colors text-left">
-                                    <i class="fas fa-chart-line text-primary text-2xl mb-2"></i>
-                                    <p class="font-medium">View Monitoring</p>
-                                    <p class="text-xs text-gray-500">Real-time status</p>
-                                </button>
-                                <button onclick="showSection('apps')" class="p-4 bg-gray-700/50 rounded-xl hover:bg-gray-700 transition-colors text-left">
-                                    <i class="fas fa-list text-accent text-2xl mb-2"></i>
-                                    <p class="font-medium">View Apps</p>
-                                    <p class="text-xs text-gray-500">Application list</p>
-                                </button>
-                                <button onclick="showSection('servers')" class="p-4 bg-gray-700/50 rounded-xl hover:bg-gray-700 transition-colors text-left">
-                                    <i class="fas fa-server text-warning text-2xl mb-2"></i>
-                                    <p class="font-medium">View Servers</p>
-                                    <p class="text-xs text-gray-500">SSH servers</p>
-                                </button>
-                                <button onclick="showSection('websites')" class="p-4 bg-gray-700/50 rounded-xl hover:bg-gray-700 transition-colors text-left">
-                                    <i class="fas fa-globe text-accent text-2xl mb-2"></i>
-                                    <p class="font-medium">View Websites</p>
-                                    <p class="text-xs text-gray-500">Monitored websites</p>
-                                </button>
-                                <button onclick="window.open('https://github.com', '_blank')" class="p-4 bg-gray-700/50 rounded-xl hover:bg-gray-700 transition-colors text-left">
-                                    <i class="fab fa-github text-white text-2xl mb-2"></i>
-                                    <p class="font-medium">GitHub</p>
-                                    <p class="text-xs text-gray-500">Open repository</p>
-                                </button>
+                            <div class="h-48">
+                                <canvas id="healthTrendChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Developer Tools -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                        <!-- CLI Command Shortcuts -->
+                        <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                            <h3 class="text-lg font-semibold mb-4 flex items-center">
+                                <i class="fas fa-terminal text-primary mr-2"></i>
+                                Quick CLI Commands
+                            </h3>
+                            <div class="space-y-3">
+                                <div class="bg-gray-900/50 rounded-lg p-3 border border-gray-700/30 group hover:border-primary/50 transition-all cursor-pointer" onclick="copyCommand('devops app logs <app-name>')">
+                                    <div class="flex items-center justify-between">
+                                        <div class="flex-1">
+                                            <p class="text-xs text-gray-500 mb-1">View Application Logs</p>
+                                            <code class="text-sm text-green-400 font-mono">devops app logs &lt;app-name&gt;</code>
+                                        </div>
+                                        <i class="fas fa-copy text-gray-600 group-hover:text-primary ml-2"></i>
+                                    </div>
+                                </div>
+                                <div class="bg-gray-900/50 rounded-lg p-3 border border-gray-700/30 group hover:border-primary/50 transition-all cursor-pointer" onclick="copyCommand('devops ssh connect <server-name>')">
+                                    <div class="flex items-center justify-between">
+                                        <div class="flex-1">
+                                            <p class="text-xs text-gray-500 mb-1">SSH to Server</p>
+                                            <code class="text-sm text-green-400 font-mono">devops ssh connect &lt;server-name&gt;</code>
+                                        </div>
+                                        <i class="fas fa-copy text-gray-600 group-hover:text-primary ml-2"></i>
+                                    </div>
+                                </div>
+                                <div class="bg-gray-900/50 rounded-lg p-3 border border-gray-700/30 group hover:border-primary/50 transition-all cursor-pointer" onclick="copyCommand('devops health check <resource-name>')">
+                                    <div class="flex items-center justify-between">
+                                        <div class="flex-1">
+                                            <p class="text-xs text-gray-500 mb-1">Check Health Status</p>
+                                            <code class="text-sm text-green-400 font-mono">devops health check &lt;resource-name&gt;</code>
+                                        </div>
+                                        <i class="fas fa-copy text-gray-600 group-hover:text-primary ml-2"></i>
+                                    </div>
+                                </div>
+                                <div class="bg-gray-900/50 rounded-lg p-3 border border-gray-700/30 group hover:border-primary/50 transition-all cursor-pointer" onclick="copyCommand('devops git pr create')">
+                                    <div class="flex items-center justify-between">
+                                        <div class="flex-1">
+                                            <p class="text-xs text-gray-500 mb-1">Create Pull Request</p>
+                                            <code class="text-sm text-green-400 font-mono">devops git pr create</code>
+                                        </div>
+                                        <i class="fas fa-copy text-gray-600 group-hover:text-primary ml-2"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Recent Activity Feed -->
+                        <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-lg font-semibold flex items-center">
+                                    <i class="fas fa-stream text-accent mr-2"></i>
+                                    Recent Activity
+                                </h3>
+                                <button onclick="showSection('activity')" class="text-xs text-primary hover:text-primary/80 transition-colors">View All</button>
+                            </div>
+                            <div id="recent-activity-feed" class="space-y-3 max-h-80 overflow-y-auto">
+                                <div class="flex items-center justify-center py-8 text-gray-500">
+                                    <i class="fas fa-spinner fa-spin mr-2"></i>
+                                    Loading recent activity...
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -515,6 +579,129 @@
                     {% endif %}
                 </section>
 
+                <!-- Security Section -->
+                <section id="section-security" class="section hidden">
+                    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+                        <div class="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Dependabot</p>
+                                    <p id="security-dependabot-total" class="text-2xl font-bold text-warning">-</p>
+                                </div>
+                                <i class="fas fa-box-open text-warning text-xl"></i>
+                            </div>
+                        </div>
+                        <div class="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Secret Scanning</p>
+                                    <p id="security-secrets-total" class="text-2xl font-bold text-danger">-</p>
+                                </div>
+                                <i class="fas fa-key text-danger text-xl"></i>
+                            </div>
+                        </div>
+                        <div class="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Code Scanning</p>
+                                    <p id="security-code-total" class="text-2xl font-bold text-primary">-</p>
+                                </div>
+                                <i class="fas fa-search-code text-primary text-xl"></i>
+                            </div>
+                        </div>
+                        <div class="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-gray-400 text-sm">Total Alerts</p>
+                                    <p id="security-total" class="text-2xl font-bold text-white">-</p>
+                                </div>
+                                <i class="fas fa-shield-alt text-white text-xl"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Security Visualizations -->
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+                        <div class="lg:col-span-2 bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-lg font-semibold flex items-center">
+                                    <i class="fas fa-chart-bar text-primary mr-2"></i>
+                                    Alert Severity Distribution
+                                </h3>
+                                <button onclick="exportSecurityReport()" class="px-3 py-1 bg-primary/20 text-primary border border-primary/30 rounded-lg text-sm hover:bg-primary/30 transition-colors">
+                                    <i class="fas fa-download mr-1"></i>Export JSON
+                                </button>
+                            </div>
+                            <div class="h-64">
+                                <canvas id="securityChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                            <h3 class="text-lg font-semibold mb-4 flex items-center">
+                                <i class="fas fa-info-circle text-accent mr-2"></i>
+                                Security Recommendation
+                            </h3>
+                            <div id="security-recommendation" class="space-y-4">
+                                <div class="p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+                                    <p class="text-sm text-blue-400 font-medium mb-1">Scan Complete</p>
+                                    <p class="text-xs text-gray-400">Select a repository or run a local scan to see professional remediation steps.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <!-- Alert Repository Filter -->
+                        <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                            <h3 class="text-lg font-semibold mb-4 flex items-center">
+                                <i class="fas fa-filter text-gray-400 mr-2"></i>
+                                Repositories
+                            </h3>
+                            <div id="security-repo-list" class="space-y-2">
+                                <p class="text-gray-500 text-sm">Loading repositories...</p>
+                            </div>
+                        </div>
+
+                        <!-- Alert Details -->
+                        <div class="lg:col-span-2 space-y-6">
+                            <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                                <div class="flex items-center justify-between mb-6">
+                                    <h3 class="text-lg font-semibold flex items-center">
+                                                                        <i class="fas fa-shield-virus text-red-500 mr-2"></i>
+                                                                        Security Alerts: <span id="security-active-repo" class="ml-2 text-primary">All</span>
+                                                                    </h3>
+                                                                    <div class="flex space-x-2">
+                                                                        <button onclick="runLocalSecurityScan()" class="px-3 py-1 bg-red-600/20 text-red-400 border border-red-600/30 rounded-lg text-sm hover:bg-red-600/30 transition-colors">
+                                                                            <i class="fas fa-search-location mr-1"></i>Run Local Scan
+                                                                        </button>
+                                                                        <select id="alertTypeFilter" onchange="renderActiveSecurityAlerts()" class="px-3 py-1 bg-gray-700 rounded-lg border border-gray-600 text-sm">
+                                        
+                                            <option value="all">All Types</option>
+                                            <option value="dependabot">Dependabot</option>
+                                            <option value="secret_scanning">Secrets</option>
+                                            <option value="code_scanning">Code</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div id="security-alerts-list" class="space-y-4 max-h-[600px] overflow-y-auto pr-2">
+                                    <p class="text-gray-500 text-center py-8">Select a repository to view security alerts</p>
+                                </div>
+                            </div>
+
+                            <!-- Webhook Events -->
+                            <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
+                                <h3 class="text-lg font-semibold mb-4 flex items-center">
+                                    <i class="fas fa-broadcast-tower text-accent mr-2"></i>
+                                    Real-time Security Events
+                                </h3>
+                                <div id="security-events-list" class="space-y-2">
+                                    <p class="text-gray-500 text-sm">No recent events</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
                 <!-- Logs Section -->
                 <section id="section-logs" class="section hidden">
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -772,6 +959,33 @@
         </main>
     </div>
 
+    <!-- Terminal Modal -->
+    <div id="terminalModal" class="fixed inset-0 bg-black/80 backdrop-blur-md hidden z-50 flex items-center justify-center">
+        <div class="bg-[#0c0c14] rounded-2xl w-full max-w-4xl mx-4 border border-gray-700 shadow-2xl overflow-hidden">
+            <div class="flex items-center justify-between p-4 bg-gray-800/50 border-b border-gray-700">
+                <div class="flex items-center space-x-3">
+                    <div class="flex space-x-1.5">
+                        <div class="w-3 h-3 rounded-full bg-red-500"></div>
+                        <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+                        <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                    </div>
+                    <span class="text-sm font-mono text-gray-400 ml-4">SSH Console: <span id="terminalServerName" class="text-white"></span></span>
+                </div>
+                <button onclick="closeTerminal()" class="text-gray-500 hover:text-white transition-colors">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div id="terminalOutput" class="p-6 h-96 overflow-y-auto font-mono text-sm text-green-400 bg-black/20">
+                <p class="text-gray-500 italic">Ready for input...</p>
+            </div>
+            <div class="p-4 bg-gray-800/30 border-t border-gray-700 flex items-center">
+                <span class="text-primary mr-2 font-mono">$</span>
+                <input type="text" id="terminalInput" placeholder="Enter command..." class="flex-1 bg-transparent border-none focus:outline-none text-white font-mono" onkeypress="if(event.key === 'Enter') executeRemoteCommand()">
+                <button onclick="executeRemoteCommand()" class="ml-4 px-4 py-1 bg-primary rounded-lg text-sm font-bold">Run</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Add User Modal -->
     <div id="addUserModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm hidden z-50 flex items-center justify-center">
         <div class="bg-gray-800 rounded-2xl p-6 w-full max-w-md mx-4 border border-gray-700">
@@ -804,1317 +1018,7 @@
         </div>
     </div>
 
-    <script>
-        // Update time
-        function updateTime() {
-            document.getElementById('currentTime').textContent = new Date().toLocaleTimeString();
-        }
-        setInterval(updateTime, 1000);
-        updateTime();
-
-        // Section navigation
-        function showSection(section) {
-            document.querySelectorAll('.section').forEach(s => s.classList.add('hidden'));
-            document.getElementById(`section-${section}`).classList.remove('hidden');
-
-            document.querySelectorAll('.sidebar-item').forEach(item => {
-                item.classList.remove('active');
-                if (item.dataset.section === section) {
-                    item.classList.add('active');
-                }
-            });
-
-            const titles = {
-                'overview': 'Overview',
-                'monitoring': 'Monitoring',
-                'apps': 'Applications',
-                'servers': 'Servers',
-                'users': 'Users',
-                'deployments': 'Deployments',
-                'repos': 'Repositories',
-                'logs': 'Logs',
-                'activity': 'Activity',
-                'documents': 'Documents'
-            };
-            document.getElementById('pageTitle').textContent = titles[section] || 'Dashboard';
-
-            // Load section data
-            if (section === 'apps') loadApps();
-            if (section === 'servers') loadServers();
-            if (section === 'websites') loadWebsites();
-            if (section === 'users') loadUsers();
-            if (section === 'monitoring') loadMonitoring();
-            if (section === 'deployments') loadDeployments();
-            if (section === 'repos') loadRepos();
-            if (section === 'logs') loadLogSources();
-            if (section === 'activity') loadActivity();
-            if (section === 'documents') { loadDocuments(); loadResourceOptions(); }
-        }
-
-        // Logout
-        async function logout() {
-            await fetch('/api/auth/logout', { method: 'POST' });
-            window.location.href = '/login';
-        }
-
-        // Refresh data
-        function refreshData() {
-            loadConfigStatus();
-            loadMonitoring();
-            const activeSection = document.querySelector('.sidebar-item.active')?.dataset.section;
-            if (activeSection) showSection(activeSection);
-        }
-
-        // Load config status
-        async function loadConfigStatus() {
-            try {
-                const response = await fetch('/api/config/status');
-                const data = await response.json();
-
-                document.getElementById('stat-apps').textContent = data.apps_count || 0;
-                document.getElementById('stat-servers').textContent = data.servers_count || 0;
-            } catch (error) {
-                console.error('Error loading config status:', error);
-            }
-        }
-
-        // Load monitoring data
-        async function loadMonitoring() {
-            try {
-                const response = await fetch('/api/monitoring');
-                const data = await response.json();
-
-                document.getElementById('stat-online').textContent = data.summary?.online || 0;
-                document.getElementById('stat-offline').textContent = data.summary?.offline || 0;
-
-                // Update live status on overview
-                const liveStatus = document.getElementById('live-status');
-                const allItems = [...(data.websites || []), ...(data.apps || []), ...(data.servers || [])];
-
-                if (allItems.length === 0) {
-                    liveStatus.innerHTML = '<p class="text-gray-500 text-center py-4">No resources configured for monitoring</p>';
-                } else {
-                    liveStatus.innerHTML = allItems.slice(0, 6).map(item => `
-                        <div class="flex items-center justify-between p-3 bg-gray-700/50 rounded-lg">
-                            <div class="flex items-center space-x-3">
-                                <div class="w-3 h-3 rounded-full ${item.status === 'online' ? 'bg-success' : item.status === 'degraded' ? 'bg-warning' : 'bg-danger'} ${item.status === 'online' ? '' : 'status-pulse'}"></div>
-                                <span>${item.name}</span>
-                            </div>
-                            <span class="text-sm ${item.status === 'online' ? 'text-success' : item.status === 'degraded' ? 'text-warning' : 'text-danger'}">${item.status}</span>
-                        </div>
-                    `).join('');
-                }
-
-                // Update monitoring section
-                updateMonitoringSection(data);
-
-            } catch (error) {
-                console.error('Error loading monitoring:', error);
-            }
-        }
-
-        function updateMonitoringSection(data) {
-            // Websites
-            const websitesList = document.getElementById('websites-list');
-            document.getElementById('websites-count').textContent = data.websites?.length || 0;
-
-            if (data.websites && data.websites.length > 0) {
-                websitesList.innerHTML = data.websites.map(w => `
-                    <div class="flex items-center justify-between p-4 bg-gray-700/30 rounded-xl">
-                        <div class="flex items-center space-x-4">
-                            <div class="w-3 h-3 rounded-full ${w.status === 'online' ? 'bg-success' : 'bg-danger'}"></div>
-                            <div>
-                                <p class="font-medium">${w.name}</p>
-                                <p class="text-sm text-gray-500">${w.url || ''}</p>
-                            </div>
-                        </div>
-                        <div class="text-right">
-                            <p class="${w.status === 'online' ? 'text-success' : 'text-danger'}">${w.status}</p>
-                            <p class="text-sm text-gray-500">${w.response_time ? w.response_time + 'ms' : '-'}</p>
-                        </div>
-                    </div>
-                `).join('');
-            } else {
-                websitesList.innerHTML = '<p class="text-gray-500 text-center py-4">No websites configured</p>';
-            }
-
-            // Apps
-            const appsList = document.getElementById('monitor-apps-list');
-            document.getElementById('monitor-apps-count').textContent = data.apps?.length || 0;
-
-            if (data.apps && data.apps.length > 0) {
-                appsList.innerHTML = data.apps.map(a => `
-                    <div class="flex items-center justify-between p-3 bg-gray-700/30 rounded-lg">
-                        <div class="flex items-center space-x-3">
-                            <div class="w-3 h-3 rounded-full ${a.status === 'online' ? 'bg-success' : 'bg-danger'}"></div>
-                            <span>${a.name}</span>
-                        </div>
-                        <span class="${a.status === 'online' ? 'text-success' : 'text-danger'}">${a.status}</span>
-                    </div>
-                `).join('');
-            } else {
-                appsList.innerHTML = '<p class="text-gray-500 text-center py-4">No apps in monitoring</p>';
-            }
-
-            // Servers
-            const serversList = document.getElementById('monitor-servers-list');
-            document.getElementById('monitor-servers-count').textContent = data.servers?.length || 0;
-
-            if (data.servers && data.servers.length > 0) {
-                serversList.innerHTML = data.servers.map(s => `
-                    <div class="flex items-center justify-between p-3 bg-gray-700/30 rounded-lg">
-                        <div class="flex items-center space-x-3">
-                            <div class="w-3 h-3 rounded-full ${s.status === 'online' ? 'bg-success' : 'bg-danger'}"></div>
-                            <span>${s.name}</span>
-                        </div>
-                        <span class="${s.status === 'online' ? 'text-success' : 'text-danger'}">${s.status}</span>
-                    </div>
-                `).join('');
-            } else {
-                serversList.innerHTML = '<p class="text-gray-500 text-center py-4">No servers in monitoring</p>';
-            }
-        }
-
-        // Load apps
-        async function loadApps() {
-            try {
-                const response = await fetch('/api/apps');
-                const data = await response.json();
-
-                const appsList = document.getElementById('apps-list');
-
-                if (data.apps && data.apps.length > 0) {
-                    appsList.innerHTML = data.apps.map(app => `
-                        <div class="p-4 bg-gray-700/30 rounded-xl hover:bg-gray-700/50 transition-colors">
-                            <div class="flex items-center justify-between">
-                                <div class="flex items-center space-x-4">
-                                    <div class="w-12 h-12 bg-primary/20 rounded-xl flex items-center justify-center">
-                                        <i class="fas fa-cube text-primary"></i>
-                                    </div>
-                                    <div>
-                                        <p class="font-medium">${app.name}</p>
-                                        <p class="text-sm text-gray-500">${app.type} • ${app.description || 'No description'}</p>
-                                    </div>
-                                </div>
-                                <button onclick="checkAppHealth('${app.name}')" class="px-3 py-1 bg-gray-600 rounded-lg hover:bg-gray-500 transition-colors text-sm">
-                                    <i class="fas fa-heartbeat mr-1"></i>Health
-                                </button>
-                            </div>
-                        </div>
-                    `).join('');
-                } else {
-                    appsList.innerHTML = '<p class="text-gray-500 text-center py-8">No applications configured. Run: devops admin app-add</p>';
-                }
-            } catch (error) {
-                console.error('Error loading apps:', error);
-            }
-        }
-
-        // Check app health
-        async function checkAppHealth(appName) {
-            try {
-                const response = await fetch(`/api/apps/${appName}/health`);
-                const data = await response.json();
-                alert(`${appName}: ${data.status}\n${data.response_time ? 'Response: ' + data.response_time + 'ms' : ''}\n${data.error || data.message || ''}`);
-            } catch (error) {
-                alert('Error checking health: ' + error.message);
-            }
-        }
-
-        // Load servers
-        async function loadServers() {
-            try {
-                const response = await fetch('/api/servers');
-                const data = await response.json();
-
-                const serversList = document.getElementById('servers-list');
-
-                if (data.servers && data.servers.length > 0) {
-                    serversList.innerHTML = data.servers.map(server => `
-                        <div class="p-4 bg-gray-700/30 rounded-xl">
-                            <div class="flex items-center justify-between">
-                                <div class="flex items-center space-x-4">
-                                    <div class="w-12 h-12 bg-warning/20 rounded-xl flex items-center justify-center">
-                                        <i class="fas fa-server text-warning"></i>
-                                    </div>
-                                    <div>
-                                        <p class="font-medium">${server.name}</p>
-                                        <p class="text-sm text-gray-500">${server.user}@${server.host}:${server.port}</p>
-                                    </div>
-                                </div>
-                                <div class="flex items-center space-x-2">
-                                    ${server.tags.map(tag => `<span class="px-2 py-1 bg-gray-600 rounded text-xs">${tag}</span>`).join('')}
-                                </div>
-                            </div>
-                        </div>
-                    `).join('');
-                } else {
-                    serversList.innerHTML = '<p class="text-gray-500 text-center py-8">No servers configured. Run: devops admin server-add</p>';
-                }
-            } catch (error) {
-                console.error('Error loading servers:', error);
-            }
-        }
-
-        // Load websites
-        async function loadWebsites() {
-            try {
-                const response = await fetch('/api/websites');
-                const data = await response.json();
-
-                const websitesList = document.getElementById('websites-main-list');
-
-                if (data.websites && data.websites.length > 0) {
-                    websitesList.innerHTML = data.websites.map(website => `
-                        <div class="p-4 bg-gray-700/30 rounded-xl hover:bg-gray-700/50 transition-colors">
-                            <div class="flex items-center justify-between">
-                                <div class="flex items-center space-x-4">
-                                    <div class="w-12 h-12 bg-accent/20 rounded-xl flex items-center justify-center">
-                                        <i class="fas fa-globe text-accent"></i>
-                                    </div>
-                                    <div>
-                                        <p class="font-medium">${website.name}</p>
-                                        <p class="text-sm text-gray-500">${website.url}</p>
-                                    </div>
-                                </div>
-                                <div class="flex items-center space-x-2">
-                                    <span class="px-2 py-1 bg-gray-600 rounded text-xs">${website.method}</span>
-                                    <span class="px-2 py-1 bg-gray-600 rounded text-xs">Expected: ${website.expected_status}</span>
-                                </div>
-                            </div>
-                        </div>
-                    `).join('');
-                } else {
-                    websitesList.innerHTML = '<p class="text-gray-500 text-center py-8">No websites configured. Run: devops admin website-add</p>';
-                }
-            } catch (error) {
-                console.error('Error loading websites:', error);
-            }
-        }
-
-        // Load users
-        async function loadUsers() {
-            try {
-                const response = await fetch('/api/users');
-                if (response.status === 403) {
-                    document.getElementById('users-list').innerHTML = '<p class="text-gray-500 text-center py-8">Admin access required</p>';
-                    return;
-                }
-                const data = await response.json();
-
-                const usersList = document.getElementById('users-list');
-
-                if (data.users && data.users.length > 0) {
-                    usersList.innerHTML = data.users.map(user => `
-                        <div class="p-4 bg-gray-700/30 rounded-xl">
-                            <div class="flex items-center justify-between">
-                                <div class="flex items-center space-x-4">
-                                    <div class="w-12 h-12 bg-secondary/20 rounded-full flex items-center justify-center">
-                                        <span class="font-bold text-secondary">${(user.name || user.email)[0].toUpperCase()}</span>
-                                    </div>
-                                    <div>
-                                        <p class="font-medium">${user.name || user.email.split('@')[0]}</p>
-                                        <p class="text-sm text-gray-500">${user.email}</p>
-                                    </div>
-                                </div>
-                                <div class="flex items-center space-x-3">
-                                    <span class="px-3 py-1 ${user.role === 'admin' ? 'bg-secondary/20 text-secondary' : 'bg-primary/20 text-primary'} rounded-full text-sm">${user.role}</span>
-                                    <span class="px-3 py-1 ${user.active !== false ? 'bg-success/20 text-success' : 'bg-danger/20 text-danger'} rounded-full text-sm">${user.active !== false ? 'Active' : 'Inactive'}</span>
-                                </div>
-                            </div>
-                        </div>
-                    `).join('');
-                } else {
-                    usersList.innerHTML = '<p class="text-gray-500 text-center py-8">No users found</p>';
-                }
-            } catch (error) {
-                console.error('Error loading users:', error);
-            }
-        }
-
-        // Add user modal
-        function showAddUserModal() {
-            document.getElementById('addUserModal').classList.remove('hidden');
-            document.getElementById('newUserToken').classList.add('hidden');
-        }
-
-        function hideAddUserModal() {
-            document.getElementById('addUserModal').classList.add('hidden');
-            document.getElementById('addUserForm').reset();
-            document.getElementById('newUserToken').classList.add('hidden');
-        }
-
-        document.getElementById('addUserForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-
-            const email = document.getElementById('newUserEmail').value;
-            const name = document.getElementById('newUserName').value;
-            const role = document.getElementById('newUserRole').value;
-
-            try {
-                const response = await fetch('/api/users', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, name, role })
-                });
-
-                const data = await response.json();
-
-                if (response.ok && data.token) {
-                    document.getElementById('tokenValue').textContent = data.token;
-                    document.getElementById('newUserToken').classList.remove('hidden');
-                    loadUsers();
-                } else {
-                    alert(data.detail || 'Error creating user');
-                }
-            } catch (error) {
-                alert('Error: ' + error.message);
-            }
-        });
-
-        // ==================== Deployments ====================
-        async function loadDeployments() {
-            try {
-                const appFilter = document.getElementById('deployFilterApp')?.value || '';
-                const statusFilter = document.getElementById('deployFilterStatus')?.value || 'all';
-
-                const response = await fetch(`/api/deployments?app_name=${appFilter}&status=${statusFilter}`);
-                const data = await response.json();
-
-                // Update stats
-                const deployments = data.deployments || [];
-                document.getElementById('deploy-total').textContent = deployments.length;
-                document.getElementById('deploy-success').textContent = deployments.filter(d => d.status === 'success').length;
-                document.getElementById('deploy-failed').textContent = deployments.filter(d => d.status === 'failed').length;
-                document.getElementById('deploy-progress').textContent = deployments.filter(d => d.status === 'in_progress').length;
-
-                // Populate app filter
-                const appSelect = document.getElementById('deployFilterApp');
-                if (appSelect && appSelect.options.length <= 1 && data.apps) {
-                    data.apps.forEach(app => {
-                        const option = document.createElement('option');
-                        option.value = app;
-                        option.textContent = app;
-                        appSelect.appendChild(option);
-                    });
-                }
-
-                // Render deployments
-                const list = document.getElementById('deployments-list');
-                if (deployments.length > 0) {
-                    list.innerHTML = deployments.map(d => `
-                        <div class="p-4 bg-gray-700/30 rounded-xl hover:bg-gray-700/50 transition-colors">
-                            <div class="flex items-center justify-between">
-                                <div class="flex items-center space-x-4">
-                                    <div class="w-12 h-12 rounded-xl flex items-center justify-center ${
-                                        d.status === 'success' ? 'bg-success/20' :
-                                        d.status === 'failed' ? 'bg-danger/20' :
-                                        d.status === 'in_progress' ? 'bg-warning/20' : 'bg-gray-600/20'
-                                    }">
-                                        <i class="fas ${
-                                            d.status === 'success' ? 'fa-check text-success' :
-                                            d.status === 'failed' ? 'fa-times text-danger' :
-                                            d.status === 'in_progress' ? 'fa-spinner fa-spin text-warning' : 'fa-undo text-gray-400'
-                                        } text-xl"></i>
-                                    </div>
-                                    <div>
-                                        <div class="flex items-center space-x-2">
-                                            <p class="font-medium">${d.app}</p>
-                                            <span class="px-2 py-0.5 bg-gray-600 rounded text-xs">${d.version}</span>
-                                            <span class="px-2 py-0.5 ${d.environment === 'production' ? 'bg-danger/20 text-danger' : 'bg-warning/20 text-warning'} rounded text-xs">${d.environment}</span>
-                                        </div>
-                                        <p class="text-sm text-gray-400">${d.message}</p>
-                                        <p class="text-xs text-gray-500 mt-1">
-                                            <i class="fas fa-user mr-1"></i>${d.deployed_by} •
-                                            <i class="fas fa-clock mr-1"></i>${new Date(d.deployed_at).toLocaleString()} •
-                                            <i class="fas fa-stopwatch mr-1"></i>${d.duration}
-                                        </p>
-                                    </div>
-                                </div>
-                                <div class="text-right">
-                                    <span class="px-3 py-1 rounded-full text-sm ${
-                                        d.status === 'success' ? 'bg-success/20 text-success' :
-                                        d.status === 'failed' ? 'bg-danger/20 text-danger' :
-                                        d.status === 'in_progress' ? 'bg-warning/20 text-warning' : 'bg-gray-600/20 text-gray-400'
-                                    }">${d.status.replace('_', ' ')}</span>
-                                    <p class="text-xs text-gray-500 mt-2"><i class="fas fa-code-commit mr-1"></i>${d.commit}</p>
-                                </div>
-                            </div>
-                            ${d.error ? `<div class="mt-3 p-2 bg-danger/10 border border-danger/30 rounded-lg text-sm text-danger"><i class="fas fa-exclamation-triangle mr-2"></i>${d.error}</div>` : ''}
-                        </div>
-                    `).join('');
-                } else {
-                    list.innerHTML = '<p class="text-gray-500 text-center py-8">No deployments found</p>';
-                }
-            } catch (error) {
-                console.error('Error loading deployments:', error);
-            }
-        }
-
-        // ==================== GitHub Repos ====================
-        async function loadRepos() {
-            try {
-                const response = await fetch('/api/github/repos');
-                const data = await response.json();
-
-                // Update stats
-                document.getElementById('repos-total').textContent = data.total || 0;
-                document.getElementById('repos-team').textContent = data.team_name || '-';
-                document.getElementById('repos-org').textContent = data.org || '-';
-                document.getElementById('repos-org-total').textContent = data.all_count || 0;
-                document.getElementById('repos-title').textContent = data.org ? `${data.org} Repositories` : 'GitHub Repositories';
-
-                // Show error if any
-                const errorDiv = document.getElementById('repos-error');
-                if (data.error) {
-                    errorDiv.classList.remove('hidden');
-                    document.getElementById('repos-error-text').textContent = data.error;
-                    document.getElementById('repos-error-hint').textContent = data.hint || '';
-                } else {
-                    errorDiv.classList.add('hidden');
-                }
-
-                // Render repos
-                const list = document.getElementById('repos-list');
-                const repos = data.repos || [];
-                if (repos.length > 0) {
-                    list.innerHTML = repos.map(r => `
-                        <div class="relative group bg-gray-700/30 rounded-xl border border-gray-600/30 hover:border-primary/50 transition-all repo-card" data-owner="${data.org}" data-repo="${r.name}">
-                            <a href="${r.url}" target="_blank" class="block p-4">
-                                <div class="flex items-start justify-between mb-2">
-                                    <h4 class="font-medium text-white flex items-center">
-                                        <i class="${r.private ? 'fas fa-lock text-yellow-500' : 'fab fa-github'} mr-2"></i>
-                                        ${r.name}
-                                    </h4>
-                                    <div class="repo-pipeline-status text-xs">
-                                        <span class="px-2 py-0.5 bg-gray-600 rounded animate-pulse">Checking...</span>
-                                    </div>
-                                </div>
-                                <p class="text-sm text-gray-400 mb-3 line-clamp-2 h-10">${r.description || 'No description'}</p>
-                                
-                                <div class="mb-3 pt-3 border-t border-gray-600/30 repo-commit-info min-h-[60px]">
-                                    <div class="text-xs text-gray-500 flex items-center gap-2 mb-1">
-                                        <i class="fas fa-code-branch"></i>
-                                        <span class="font-mono bg-gray-800 px-1 rounded">${r.default_branch}</span>
-                                    </div>
-                                    <p class="text-xs text-gray-300 truncate font-mono repo-commit-msg">Loading commit...</p>
-                                    <p class="text-[10px] text-gray-500 repo-commit-meta"></p>
-                                </div>
-
-                                <div class="flex items-center text-xs text-gray-500 space-x-3 mt-auto">
-                                    ${r.language ? `<span class="px-2 py-0.5 bg-primary/20 text-primary rounded">${r.language}</span>` : ''}
-                                    <span><i class="fas fa-star text-yellow-500 mr-1"></i>${r.stars}</span>
-                                    <span><i class="fas fa-code-branch mr-1"></i>${r.forks}</span>
-                                </div>
-                            </a>
-                        </div>
-                    `).join('');
-
-                    // Lazy load status for each repo
-                    document.querySelectorAll('.repo-card').forEach(card => {
-                        const owner = card.dataset.owner;
-                        const repo = card.dataset.repo;
-                        if (owner && repo) {
-                            loadRepoStatus(card, owner, repo);
-                        }
-                    });
-
-                } else if (!data.error) {
-                    list.innerHTML = '<p class="text-gray-500 text-center py-8 col-span-3">No repositories found for your team</p>';
-                } else {
-                    list.innerHTML = '';
-                }
-
-                // Load config for admin
-                loadGitHubConfig();
-            } catch (error) {
-                console.error('Error loading repos:', error);
-            }
-        }
-
-        async function loadRepoStatus(card, owner, repo) {
-            try {
-                const response = await fetch(`/api/github/repos/${owner}/${repo}/status`);
-                const data = await response.json();
-
-                if (data.error) throw new Error(data.error);
-
-                // Update Pipeline Status
-                const statusDiv = card.querySelector('.repo-pipeline-status');
-                if (data.pipeline && data.pipeline.status !== 'no_runs') {
-                    const status = data.pipeline.conclusion || data.pipeline.status;
-                    let colorClass = 'bg-gray-600 text-gray-300';
-                    let icon = 'fa-circle';
-                    
-                    if (status === 'success') {
-                        colorClass = 'bg-green-500/20 text-green-400 border border-green-500/30';
-                        icon = 'fa-check';
-                    } else if (status === 'failure') {
-                        colorClass = 'bg-red-500/20 text-red-400 border border-red-500/30';
-                        icon = 'fa-times';
-                    } else if (status === 'in_progress' || status === 'queued') {
-                        colorClass = 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30';
-                        icon = 'fa-spinner fa-spin';
-                    }
-
-                    statusDiv.innerHTML = `
-                        <a href="${data.pipeline.html_url}" target="_blank" class="px-2 py-0.5 rounded flex items-center gap-1 ${colorClass}" title="Latest Run: ${status}">
-                            <i class="fas ${icon} text-[10px]"></i>
-                            <span class="uppercase font-bold text-[10px]">${status}</span>
-                        </a>
-                    `;
-                } else {
-                    statusDiv.innerHTML = `<span class="text-[10px] text-gray-600">No CI/CD</span>`;
-                }
-
-                // Update Commit Info
-                const commitMsg = card.querySelector('.repo-commit-msg');
-                const commitMeta = card.querySelector('.repo-commit-meta');
-                
-                if (data.commit && data.commit.sha) {
-                    commitMsg.textContent = data.commit.message;
-                    commitMsg.title = data.commit.message; // Tooltip
-                    
-                    const timeAgo = new Date(data.commit.date).toLocaleDateString();
-                    commitMeta.innerHTML = `
-                        <i class="fas fa-user-circle mr-1"></i>${data.commit.author} • ${timeAgo} • 
-                        <span class="font-mono text-gray-600">${data.commit.sha}</span>
-                    `;
-                } else {
-                    commitMsg.textContent = "No commits found";
-                    commitMeta.textContent = "";
-                }
-
-            } catch (e) {
-                console.error(`Failed to load status for ${repo}:`, e);
-                card.querySelector('.repo-pipeline-status').innerHTML = `<span class="text-red-900 text-[10px]">!</span>`;
-                card.querySelector('.repo-commit-msg').textContent = "Failed to load details";
-            }
-        }
-
-        async function loadGitHubConfig() {
-            try {
-                const response = await fetch('/api/github/config');
-                if (response.ok) {
-                    const data = await response.json();
-                    const orgInput = document.getElementById('github-org-input');
-                    if (orgInput) orgInput.value = data.org || '';
-                }
-            } catch (e) {}
-        }
-
-        async function saveGitHubConfig() {
-            try {
-                const org = document.getElementById('github-org-input')?.value || '';
-                const token = document.getElementById('github-token-input')?.value || '';
-
-                const response = await fetch('/api/github/config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ org, token: token || undefined })
-                });
-
-                if (response.ok) {
-                    alert('GitHub configuration saved!');
-                    loadRepos();
-                }
-            } catch (error) {
-                alert('Error saving configuration');
-            }
-        }
-
-        // ==================== Logs ====================
-        let currentLogSource = null;
-        let liveLogEventSource = null;
-        let currentLogs = [];
-
-        async function loadLogSources() {
-            try {
-                const appsResponse = await fetch('/api/apps');
-                const appsData = await appsResponse.json();
-
-                const serversResponse = await fetch('/api/servers');
-                const serversData = await serversResponse.json();
-
-                const sources = document.getElementById('log-sources');
-                let html = '';
-
-                // Apps
-                if (appsData.apps && appsData.apps.length > 0) {
-                    html += '<p class="text-xs text-gray-500 uppercase mb-2">Applications</p>';
-                    html += appsData.apps.map(app => `
-                        <button onclick="loadAppLogs('${app.name}')" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-700/50 transition-colors flex items-center justify-between group log-source-btn" data-source="app-${app.name}">
-                            <span class="flex items-center">
-                                <i class="fas fa-cube text-accent mr-2"></i>
-                                ${app.name}
-                            </span>
-                            <span class="text-xs text-gray-500">${app.type}</span>
-                        </button>
-                    `).join('');
-                }
-
-                // Servers
-                if (serversData.servers && serversData.servers.length > 0) {
-                    html += '<p class="text-xs text-gray-500 uppercase mb-2 mt-4">Servers</p>';
-                    html += serversData.servers.map(server => `
-                        <button onclick="loadServerLogs('${server.name}')" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-700/50 transition-colors flex items-center justify-between group log-source-btn" data-source="server-${server.name}">
-                            <span class="flex items-center">
-                                <i class="fas fa-server text-warning mr-2"></i>
-                                ${server.name}
-                            </span>
-                            <span class="text-xs text-gray-500">${server.host}</span>
-                        </button>
-                    `).join('');
-                }
-
-                sources.innerHTML = html || '<p class="text-gray-500 text-sm">No log sources configured</p>';
-            } catch (error) {
-                console.error('Error loading log sources:', error);
-            }
-        }
-
-        async function loadAppLogs(appName) {
-            currentLogSource = { type: 'app', name: appName };
-            document.getElementById('log-viewer-title').textContent = `${appName} Logs`;
-
-            // Highlight active source
-            document.querySelectorAll('.log-source-btn').forEach(btn => btn.classList.remove('bg-primary/20'));
-            document.querySelector(`[data-source="app-${appName}"]`)?.classList.add('bg-primary/20');
-
-            try {
-                const level = document.getElementById('logLevelFilter').value;
-                const response = await fetch(`/api/apps/${appName}/logs?level=${level}`);
-                const data = await response.json();
-
-                currentLogs = data.logs || [];
-                renderLogs(currentLogs, data);
-            } catch (error) {
-                console.error('Error loading app logs:', error);
-            }
-        }
-
-        async function loadServerLogs(serverName) {
-            currentLogSource = { type: 'server', name: serverName };
-            document.getElementById('log-viewer-title').textContent = `${serverName} Logs`;
-
-            // Highlight active source
-            document.querySelectorAll('.log-source-btn').forEach(btn => btn.classList.remove('bg-primary/20'));
-            document.querySelector(`[data-source="server-${serverName}"]`)?.classList.add('bg-primary/20');
-
-            try {
-                const response = await fetch(`/api/servers/${serverName}/logs`);
-                const data = await response.json();
-
-                currentLogs = data.logs || [];
-                renderLogs(currentLogs, data);
-            } catch (error) {
-                console.error('Error loading server logs:', error);
-            }
-        }
-
-        function renderLogs(logs, metadata = {}) {
-            const viewer = document.getElementById('log-viewer');
-
-            // Build header with source info
-            let headerHtml = '';
-            if (metadata.source_used || metadata.document_available !== undefined) {
-                headerHtml = `<div class="mb-3 p-3 bg-gray-800 rounded-lg border border-gray-700">
-                    <div class="flex items-center justify-between flex-wrap gap-2">
-                        <div class="flex items-center space-x-3">
-                            ${metadata.source_used ? `
-                                <span class="px-2 py-1 rounded text-xs ${
-                                    metadata.source_used === 'cloudwatch' ? 'bg-orange-500/20 text-orange-400' :
-                                    metadata.source_used === 'document' ? 'bg-blue-500/20 text-blue-400' :
-                                    metadata.source_used === 'none' ? 'bg-gray-500/20 text-gray-400' :
-                                    'bg-green-500/20 text-green-400'
-                                }">
-                                    <i class="fas ${
-                                        metadata.source_used === 'cloudwatch' ? 'fa-cloud' :
-                                        metadata.source_used === 'document' ? 'fa-file-alt' :
-                                        metadata.source_used === 'none' ? 'fa-info-circle' :
-                                        'fa-stream'
-                                    } mr-1"></i>
-                                    Source: ${metadata.source_used}
-                                </span>
-                            ` : ''}
-                            ${metadata.document_available ? `
-                                <span class="px-2 py-1 rounded text-xs bg-blue-500/20 text-blue-400">
-                                    <i class="fas fa-file-alt mr-1"></i>Document available
-                                </span>
-                            ` : ''}
-                        </div>
-                        ${metadata.message ? `<span class="text-xs text-gray-400">${metadata.message}</span>` : ''}
-                    </div>
-                    ${metadata.hint ? `<p class="text-xs text-gray-500 mt-2"><i class="fas fa-lightbulb mr-1 text-yellow-500"></i>${metadata.hint}</p>` : ''}
-                </div>`;
-            }
-
-            if (logs.length > 0) {
-                viewer.innerHTML = headerHtml + logs.map(log => `
-                    <div class="flex items-start space-x-2 py-1 border-b border-gray-800/50 hover:bg-gray-800/30">
-                        <span class="text-gray-500 text-xs whitespace-nowrap">${new Date(log.timestamp).toLocaleTimeString()}</span>
-                        <span class="px-1.5 py-0.5 rounded text-xs font-medium ${
-                            log.level === 'ERROR' ? 'bg-danger/20 text-danger' :
-                            log.level === 'WARN' ? 'bg-warning/20 text-warning' :
-                            log.level === 'INFO' ? 'bg-success/20 text-success' :
-                            'bg-gray-600/20 text-gray-400'
-                        }">${log.level}</span>
-                        <span class="text-gray-300 flex-1">${log.message}</span>
-                    </div>
-                `).join('');
-                viewer.scrollTop = viewer.scrollHeight;
-            } else {
-                viewer.innerHTML = headerHtml + '<p class="text-gray-500">No logs found</p>';
-            }
-        }
-
-        function filterLogs() {
-            const level = document.getElementById('logLevelFilter').value;
-            if (level === 'all') {
-                renderLogs(currentLogs);
-            } else {
-                const filtered = currentLogs.filter(l => l.level.toLowerCase() === level);
-                renderLogs(filtered);
-            }
-        }
-
-        function refreshLogs() {
-            if (currentLogSource) {
-                if (currentLogSource.type === 'app') {
-                    loadAppLogs(currentLogSource.name);
-                } else {
-                    loadServerLogs(currentLogSource.name);
-                }
-            }
-        }
-
-        function toggleLiveLogs() {
-            const btn = document.getElementById('liveLogBtn');
-
-            if (liveLogEventSource) {
-                liveLogEventSource.close();
-                liveLogEventSource = null;
-                btn.innerHTML = '<i class="fas fa-play mr-1"></i> Live';
-                btn.classList.remove('bg-success', 'text-white');
-                return;
-            }
-
-            if (!currentLogSource || currentLogSource.type !== 'app') {
-                alert('Select an application to stream live logs');
-                return;
-            }
-
-            btn.innerHTML = '<i class="fas fa-stop mr-1"></i> Stop';
-            btn.classList.add('bg-success', 'text-white');
-
-            liveLogEventSource = new EventSource(`/api/apps/${currentLogSource.name}/logs/stream`);
-
-            liveLogEventSource.onmessage = (event) => {
-                try {
-                    const log = JSON.parse(event.data);
-                    currentLogs.push(log);
-                    if (currentLogs.length > 100) currentLogs.shift();
-                    renderLogs(currentLogs);
-                } catch (e) {
-                    console.error('Live log parse error:', e);
-                }
-            };
-
-            liveLogEventSource.onerror = () => {
-                toggleLiveLogs(); // Stop on error
-            };
-        }
-
-        // ==================== Expanded Log Viewer ====================
-        let expandedLiveEventSource = null;
-        let expandedLogs = [];
-
-        function expandLogViewer() {
-            const modal = document.getElementById('expanded-log-modal');
-            const title = document.getElementById('expanded-log-title');
-            const source = document.getElementById('expanded-log-source');
-
-            if (!currentLogSource) {
-                alert('Please select a log source first');
-                return;
-            }
-
-            // Set title and source
-            title.textContent = `Logs: ${currentLogSource.name}`;
-            source.textContent = currentLogSource.type === 'app' ? 'Application' : 'Server';
-
-            // Copy current logs to expanded view
-            expandedLogs = [...currentLogs];
-            renderExpandedLogs(expandedLogs);
-
-            // Sync filter
-            document.getElementById('expandedLogLevelFilter').value = document.getElementById('logLevelFilter').value;
-
-            // Show modal
-            modal.classList.remove('hidden');
-            document.body.style.overflow = 'hidden';
-        }
-
-        function closeExpandedLogViewer() {
-            const modal = document.getElementById('expanded-log-modal');
-            modal.classList.add('hidden');
-            document.body.style.overflow = 'auto';
-
-            // Stop live stream if active
-            if (expandedLiveEventSource) {
-                expandedLiveEventSource.close();
-                expandedLiveEventSource = null;
-                document.getElementById('expandedLiveLogBtn').innerHTML = '<i class="fas fa-play mr-1"></i> Live Stream';
-                document.getElementById('expanded-live-indicator').classList.add('hidden');
-            }
-        }
-
-        function renderExpandedLogs(logs) {
-            const viewer = document.getElementById('expanded-log-viewer');
-            const autoScroll = document.getElementById('expanded-auto-scroll').checked;
-
-            // Update counts
-            document.getElementById('expanded-log-count').textContent = logs.length;
-            document.getElementById('expanded-error-count').textContent = logs.filter(l => l.level === 'ERROR').length;
-            document.getElementById('expanded-warn-count').textContent = logs.filter(l => l.level === 'WARN').length;
-            document.getElementById('expanded-info-count').textContent = logs.filter(l => l.level === 'INFO').length;
-
-            if (logs.length > 0) {
-                viewer.innerHTML = logs.map((log, index) => `
-                    <div class="flex items-start space-x-3 py-2 border-b border-gray-800/50 hover:bg-gray-800/30 log-entry" data-index="${index}">
-                        <span class="text-gray-600 text-xs w-8">${index + 1}</span>
-                        <span class="text-gray-500 text-xs whitespace-nowrap w-24">${new Date(log.timestamp).toLocaleTimeString()}</span>
-                        <span class="px-2 py-0.5 rounded text-xs font-medium w-16 text-center ${
-                            log.level === 'ERROR' ? 'bg-red-500/20 text-red-400' :
-                            log.level === 'WARN' ? 'bg-yellow-500/20 text-yellow-400' :
-                            log.level === 'INFO' ? 'bg-green-500/20 text-green-400' :
-                            log.level === 'DEBUG' ? 'bg-blue-500/20 text-blue-400' :
-                            'bg-gray-600/20 text-gray-400'
-                        }">${log.level}</span>
-                        <span class="text-gray-400 text-xs w-32 truncate">${log.source || '-'}</span>
-                        <span class="text-gray-200 flex-1 break-all">${escapeHtml(log.message)}</span>
-                    </div>
-                `).join('');
-
-                if (autoScroll) {
-                    viewer.scrollTop = viewer.scrollHeight;
-                }
-            } else {
-                viewer.innerHTML = '<p class="text-gray-500 text-center py-8">No logs to display</p>';
-            }
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        function filterExpandedLogs() {
-            const level = document.getElementById('expandedLogLevelFilter').value;
-            if (level === 'all') {
-                renderExpandedLogs(expandedLogs);
-            } else {
-                const filtered = expandedLogs.filter(l => l.level.toLowerCase() === level);
-                renderExpandedLogs(filtered);
-            }
-        }
-
-        function searchExpandedLogs() {
-            const query = document.getElementById('expanded-log-search').value.toLowerCase();
-            const level = document.getElementById('expandedLogLevelFilter').value;
-
-            let filtered = expandedLogs;
-
-            if (level !== 'all') {
-                filtered = filtered.filter(l => l.level.toLowerCase() === level);
-            }
-
-            if (query) {
-                filtered = filtered.filter(l =>
-                    l.message.toLowerCase().includes(query) ||
-                    (l.source && l.source.toLowerCase().includes(query))
-                );
-            }
-
-            renderExpandedLogs(filtered);
-        }
-
-        async function refreshExpandedLogs() {
-            if (!currentLogSource) return;
-
-            try {
-                let response;
-                if (currentLogSource.type === 'app') {
-                    response = await fetch(`/api/apps/${currentLogSource.name}/logs`);
-                } else {
-                    response = await fetch(`/api/servers/${currentLogSource.name}/logs`);
-                }
-                const data = await response.json();
-                expandedLogs = data.logs || [];
-                filterExpandedLogs();
-            } catch (error) {
-                console.error('Error refreshing expanded logs:', error);
-            }
-        }
-
-        function toggleExpandedLiveLogs() {
-            const btn = document.getElementById('expandedLiveLogBtn');
-            const indicator = document.getElementById('expanded-live-indicator');
-
-            if (expandedLiveEventSource) {
-                expandedLiveEventSource.close();
-                expandedLiveEventSource = null;
-                btn.innerHTML = '<i class="fas fa-play mr-1"></i> Live Stream';
-                btn.classList.remove('bg-red-600');
-                btn.classList.add('bg-gray-700');
-                indicator.classList.add('hidden');
-                return;
-            }
-
-            if (!currentLogSource || currentLogSource.type !== 'app') {
-                alert('Live streaming is only available for applications');
-                return;
-            }
-
-            btn.innerHTML = '<i class="fas fa-stop mr-1"></i> Stop';
-            btn.classList.remove('bg-gray-700');
-            btn.classList.add('bg-red-600');
-            indicator.classList.remove('hidden');
-
-            expandedLiveEventSource = new EventSource(`/api/apps/${currentLogSource.name}/logs/stream`);
-
-            expandedLiveEventSource.onmessage = (event) => {
-                try {
-                    const log = JSON.parse(event.data);
-                    expandedLogs.push(log);
-                    if (expandedLogs.length > 500) expandedLogs.shift();
-                    filterExpandedLogs();
-                } catch (e) {
-                    console.error('Expanded live log parse error:', e);
-                }
-            };
-
-            expandedLiveEventSource.onerror = () => {
-                toggleExpandedLiveLogs();
-            };
-        }
-
-        function downloadLogs() {
-            if (expandedLogs.length === 0) {
-                alert('No logs to download');
-                return;
-            }
-
-            const content = expandedLogs.map(l =>
-                `[${l.timestamp}] [${l.level}] [${l.source || '-'}] ${l.message}`
-            ).join('\n');
-
-            const blob = new Blob([content], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `logs-${currentLogSource.name}-${new Date().toISOString().slice(0,10)}.txt`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }
-
-        // Close expanded view on Escape key
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && !document.getElementById('expanded-log-modal').classList.contains('hidden')) {
-                closeExpandedLogViewer();
-            }
-        });
-
-        // ==================== Activity ====================
-        async function loadActivity() {
-            try {
-                const filter = document.getElementById('activityFilter')?.value || 'all';
-                const response = await fetch(`/api/activity?activity_type=${filter}`);
-                const data = await response.json();
-
-                const list = document.getElementById('activity-list');
-                const activities = data.activities || [];
-
-                if (activities.length > 0) {
-                    list.innerHTML = activities.map(a => `
-                        <div class="flex items-start space-x-4 p-4 bg-gray-700/30 rounded-xl hover:bg-gray-700/50 transition-colors">
-                            <div class="w-10 h-10 rounded-full flex items-center justify-center ${
-                                a.type === 'login' ? 'bg-primary/20' :
-                                a.type === 'deploy' ? 'bg-pink-500/20' :
-                                a.type === 'config' ? 'bg-accent/20' :
-                                a.type === 'user' ? 'bg-secondary/20' :
-                                a.type === 'alert' ? 'bg-warning/20' : 'bg-gray-600/20'
-                            }">
-                                <i class="fas ${
-                                    a.type === 'login' ? 'fa-sign-in-alt text-primary' :
-                                    a.type === 'deploy' ? 'fa-rocket text-pink-500' :
-                                    a.type === 'config' ? 'fa-cog text-accent' :
-                                    a.type === 'user' ? 'fa-user text-secondary' :
-                                    a.type === 'alert' ? 'fa-bell text-warning' : 'fa-info text-gray-400'
-                                }"></i>
-                            </div>
-                            <div class="flex-1">
-                                <div class="flex items-center justify-between">
-                                    <p class="font-medium">${a.action}</p>
-                                    <span class="px-2 py-1 rounded text-xs ${
-                                        a.status === 'success' ? 'bg-success/20 text-success' :
-                                        a.status === 'failed' ? 'bg-danger/20 text-danger' :
-                                        'bg-warning/20 text-warning'
-                                    }">${a.status}</span>
-                                </div>
-                                <p class="text-sm text-gray-400 mt-1">
-                                    <i class="fas fa-user mr-1"></i>${a.user} •
-                                    <i class="fas fa-globe mr-1"></i>${a.ip} •
-                                    <i class="fas fa-clock mr-1"></i>${new Date(a.timestamp).toLocaleString()}
-                                </p>
-                            </div>
-                        </div>
-                    `).join('');
-                } else {
-                    list.innerHTML = '<p class="text-gray-500 text-center py-8">No activity found</p>';
-                }
-            } catch (error) {
-                console.error('Error loading activity:', error);
-            }
-        }
-
-        // ==================== Documents ====================
-        async function loadDocuments() {
-            try {
-                const response = await fetch('/api/documents');
-                if (response.status === 403) {
-                    document.getElementById('documents-list').innerHTML = '<p class="text-gray-500 text-center py-8">Admin access required</p>';
-                    return;
-                }
-                const data = await response.json();
-
-                const list = document.getElementById('documents-list');
-                const documents = data.documents || {};
-                const docArray = Object.entries(documents);
-
-                if (docArray.length > 0) {
-                    list.innerHTML = docArray.map(([key, doc]) => `
-                        <div class="p-4 bg-gray-700/30 rounded-xl hover:bg-gray-700/50 transition-colors">
-                            <div class="flex items-center justify-between">
-                                <div class="flex items-center space-x-4">
-                                    <div class="w-12 h-12 ${doc.original_name.endsWith('.pdf') ? 'bg-red-500/20' : 'bg-blue-500/20'} rounded-xl flex items-center justify-center">
-                                        <i class="fas ${doc.original_name.endsWith('.pdf') ? 'fa-file-pdf text-red-500' : 'fa-file-alt text-blue-500'} text-xl"></i>
-                                    </div>
-                                    <div>
-                                        <p class="font-medium">${doc.original_name}</p>
-                                        <p class="text-sm text-gray-400">
-                                            <span class="px-2 py-0.5 ${doc.resource_type === 'app' ? 'bg-accent/20 text-accent' : 'bg-warning/20 text-warning'} rounded text-xs mr-2">${doc.resource_type}</span>
-                                            ${doc.resource_name}
-                                        </p>
-                                        <p class="text-xs text-gray-500 mt-1">
-                                            <i class="fas fa-user mr-1"></i>${doc.uploaded_by} •
-                                            <i class="fas fa-clock mr-1"></i>${new Date(doc.uploaded_at).toLocaleString()} •
-                                            <i class="fas fa-file mr-1"></i>${(doc.size / 1024).toFixed(1)} KB
-                                        </p>
-                                    </div>
-                                </div>
-                                <div class="flex space-x-2">
-                                    <a href="/api/documents/${doc.resource_type}/${doc.resource_name}/download" class="px-3 py-1 bg-primary/20 text-primary rounded-lg hover:bg-primary/30 text-sm">
-                                        <i class="fas fa-download"></i>
-                                    </a>
-                                    <button onclick="deleteDocument('${doc.resource_type}', '${doc.resource_name}')" class="px-3 py-1 bg-danger/20 text-danger rounded-lg hover:bg-danger/30 text-sm">
-                                        <i class="fas fa-trash"></i>
-                                    </button>
-                                </div>
-                            </div>
-                            ${doc.description ? `<p class="text-sm text-gray-400 mt-2 pl-16">${doc.description}</p>` : ''}
-                        </div>
-                    `).join('');
-                } else {
-                    list.innerHTML = `
-                        <div class="text-center py-8">
-                            <i class="fas fa-file-upload text-4xl text-gray-600 mb-3"></i>
-                            <p class="text-gray-500">No documents uploaded yet</p>
-                            <p class="text-gray-600 text-sm mt-1">Upload log documentation for apps and servers</p>
-                        </div>
-                    `;
-                }
-            } catch (error) {
-                console.error('Error loading documents:', error);
-            }
-        }
-
-        async function loadResourceOptions() {
-            const type = document.getElementById('docResourceType').value;
-            const select = document.getElementById('docResourceName');
-
-            try {
-                let response;
-                if (type === 'app') {
-                    response = await fetch('/api/apps');
-                    const data = await response.json();
-                    select.innerHTML = '<option value="">Select application...</option>' +
-                        (data.apps || []).map(app => `<option value="${app.name}">${app.name}</option>`).join('');
-                } else if (type === 'server') {
-                    response = await fetch('/api/servers');
-                    const data = await response.json();
-                    select.innerHTML = '<option value="">Select server...</option>' +
-                        (data.servers || []).map(server => `<option value="${server.name}">${server.name}</option>`).join('');
-                } else if (type === 'website') {
-                    response = await fetch('/api/websites');
-                    const data = await response.json();
-                    select.innerHTML = '<option value="">Select website...</option>' +
-                        (data.websites || []).map(website => `<option value="${website.name}">${website.name}</option>`).join('');
-                }
-            } catch (error) {
-                console.error('Error loading resources:', error);
-            }
-        }
-
-        async function deleteDocument(resourceType, resourceName) {
-            if (!confirm(`Are you sure you want to delete this document?`)) return;
-
-            try {
-                const response = await fetch(`/api/documents/${resourceType}/${resourceName}`, {
-                    method: 'DELETE'
-                });
-
-                if (response.ok) {
-                    loadDocuments();
-                } else {
-                    const data = await response.json();
-                    alert(data.detail || 'Error deleting document');
-                }
-            } catch (error) {
-                alert('Error: ' + error.message);
-            }
-        }
-
-        // Handle document upload form
-        document.addEventListener('DOMContentLoaded', () => {
-            const uploadForm = document.getElementById('uploadDocForm');
-            if (uploadForm) {
-                uploadForm.addEventListener('submit', async (e) => {
-                    e.preventDefault();
-
-                    const resourceType = document.getElementById('docResourceType').value;
-                    const resourceName = document.getElementById('docResourceName').value;
-                    const file = document.getElementById('docFile').files[0];
-                    const description = document.getElementById('docDescription').value;
-
-                    if (!resourceName) {
-                        alert('Please select a resource');
-                        return;
-                    }
-
-                    if (!file) {
-                        alert('Please select a file');
-                        return;
-                    }
-
-                    const formData = new FormData();
-                    formData.append('file', file);
-                    formData.append('description', description);
-
-                    try {
-                        const response = await fetch(`/api/documents/${resourceType}/${resourceName}`, {
-                            method: 'POST',
-                            body: formData
-                        });
-
-                        const data = await response.json();
-
-                        if (response.ok) {
-                            alert('Document uploaded successfully!');
-                            uploadForm.reset();
-                            loadDocuments();
-                        } else {
-                            alert(data.detail || 'Error uploading document');
-                        }
-                    } catch (error) {
-                        alert('Error: ' + error.message);
-                    }
-                });
-            }
-
-            const uploadConfigForm = document.getElementById('uploadConfigForm');
-            if (uploadConfigForm) {
-                uploadConfigForm.addEventListener('submit', async (e) => {
-                    e.preventDefault();
-
-                    const configType = document.getElementById('configType').value;
-                    const configFile = document.getElementById('configFile').files[0];
-                    const mergeOption = document.getElementById('configMergeOption').value;
-
-                    if (!configFile) {
-                        alert('Please select a configuration file');
-                        return;
-                    }
-
-                    const formData = new FormData();
-                    formData.append('file', configFile);
-                    formData.append('config_type', configType);
-                    formData.append('merge', mergeOption === 'merge');
-
-                    try {
-                        const response = await fetch('/api/config/upload', {
-                            method: 'POST',
-                            body: formData
-                        });
-
-                        const data = await response.json();
-
-                        if (response.ok) {
-                            alert(data.message || 'Configuration uploaded successfully!');
-                            uploadConfigForm.reset();
-                            refreshData(); // Refresh all data after config upload
-                        } else {
-                            alert(data.detail || 'Error uploading configuration');
-                        }
-                    } catch (error) {
-                        alert('Error: ' + error.message);
-                    }
-                });
-            }
-        });
-
-        // Real-time updates via SSE
-        function startRealtimeUpdates() {
-            const eventSource = new EventSource('/api/monitoring/stream');
-
-            eventSource.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    if (!data.error) {
-                        updateMonitoringSection(data);
-
-                        // Update stats
-                        const online = (data.websites?.filter(w => w.status === 'online').length || 0) +
-                                      (data.apps?.filter(a => a.status === 'online').length || 0) +
-                                      (data.servers?.filter(s => s.status === 'online').length || 0);
-                        const offline = (data.websites?.filter(w => w.status === 'offline').length || 0) +
-                                       (data.apps?.filter(a => a.status === 'offline').length || 0) +
-                                       (data.servers?.filter(s => s.status === 'offline').length || 0);
-
-                        document.getElementById('stat-online').textContent = online;
-                        document.getElementById('stat-offline').textContent = offline;
-                    }
-                } catch (e) {
-                    console.error('SSE parse error:', e);
-                }
-            };
-
-            eventSource.onerror = () => {
-                console.log('SSE connection error, reconnecting...');
-                eventSource.close();
-                setTimeout(startRealtimeUpdates, 5000);
-            };
-        }
-
-        // Initialize
-        document.addEventListener('DOMContentLoaded', () => {
-            loadConfigStatus();
-            loadMonitoring();
-            // startRealtimeUpdates(); // Uncomment for real-time updates
-        });
-    </script>
+    <!-- External JavaScript -->
+    <script src="/static/js/dashboard.js"></script>
 </body>
 </html>

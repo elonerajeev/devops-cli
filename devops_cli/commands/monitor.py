@@ -7,7 +7,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich import box
 
-from ..monitoring import MonitoringConfig, MonitorDashboard, HealthChecker
+from ..monitoring import MonitoringConfig, MonitorDashboard
 from ..monitoring.config import WebsiteConfig, AppConfig, ServerConfig
 from ..monitoring.dashboard import SimpleMonitorDashboard
 
@@ -18,8 +18,12 @@ console = Console()
 @app.callback(invoke_without_command=True)
 def monitor_default(
     ctx: typer.Context,
-    refresh: int = typer.Option(5, "--refresh", "-r", help="Refresh interval in seconds"),
-    once: bool = typer.Option(False, "--once", "-1", help="Check once and exit (no live dashboard)")
+    refresh: int = typer.Option(
+        5, "--refresh", "-r", help="Refresh interval in seconds"
+    ),
+    once: bool = typer.Option(
+        False, "--once", "-1", help="Check once and exit (no live dashboard)"
+    ),
 ):
     """
     Launch the real-time monitoring dashboard.
@@ -38,15 +42,17 @@ def monitor_default(
 
         if counts["websites"] == 0 and counts["apps"] == 0 and counts["servers"] == 0:
             console.print()
-            console.print(Panel(
-                "[yellow]No resources configured for monitoring.[/yellow]\n\n"
-                "Add resources using:\n"
-                "  [cyan]devops monitor add-website[/cyan] --name mysite --url https://example.com\n"
-                "  [cyan]devops monitor add-app[/cyan] --name myapp --type docker --identifier container-name\n"
-                "  [cyan]devops monitor add-server[/cyan] --name web1 --host 10.0.1.10",
-                title="[bold]Monitor Setup Required[/bold]",
-                box=box.ROUNDED
-            ))
+            console.print(
+                Panel(
+                    "[yellow]No resources configured for monitoring.[/yellow]\n\n"
+                    "Add resources using:\n"
+                    "  [cyan]devops monitor add-website[/cyan] --name mysite --url https://example.com\n"
+                    "  [cyan]devops monitor add-app[/cyan] --name myapp --type docker --identifier container-name\n"
+                    "  [cyan]devops monitor add-server[/cyan] --name web1 --host 10.0.1.10",
+                    title="[bold]Monitor Setup Required[/bold]",
+                    box=box.ROUNDED,
+                )
+            )
             raise typer.Exit(0)
 
         if once:
@@ -55,7 +61,9 @@ def monitor_default(
             dashboard.run()
         else:
             # Live dashboard mode
-            console.print("[dim]Starting monitor dashboard... Press Ctrl+C to exit[/dim]")
+            console.print(
+                "[dim]Starting monitor dashboard... Press Ctrl+C to exit[/dim]"
+            )
             dashboard = MonitorDashboard(config)
             dashboard.run(refresh_interval=refresh)
 
@@ -90,14 +98,18 @@ def list_resources():
 
         for w in websites:
             enabled = "[green]Yes[/green]" if w.enabled else "[red]No[/red]"
-            table.add_row(w.name, w.url, str(w.expected_status), f"{w.timeout}s", enabled)
+            table.add_row(
+                w.name, w.url, str(w.expected_status), f"{w.timeout}s", enabled
+            )
 
         console.print(table)
         console.print()
 
     # Apps table
     if apps:
-        table = Table(title="[bold magenta]Applications[/bold magenta]", box=box.ROUNDED)
+        table = Table(
+            title="[bold magenta]Applications[/bold magenta]", box=box.ROUNDED
+        )
         table.add_column("Name", style="cyan")
         table.add_column("Type")
         table.add_column("Identifier")
@@ -129,16 +141,24 @@ def list_resources():
 
     if not websites and not apps and not servers:
         console.print("[yellow]No resources configured.[/yellow]")
-        console.print("Use [cyan]devops monitor add-website/add-app/add-server[/cyan] to add resources.")
+        console.print(
+            "Use [cyan]devops monitor add-website/add-app/add-server[/cyan] to add resources."
+        )
 
 
 @app.command("add-website")
 def add_website(
     name: str = typer.Option(..., "--name", "-n", help="Unique name for the website"),
     url: str = typer.Option(..., "--url", "-u", help="URL to monitor"),
-    expected_status: int = typer.Option(200, "--status", "-s", help="Expected HTTP status code"),
-    timeout: int = typer.Option(10, "--timeout", "-t", help="Request timeout in seconds"),
-    method: str = typer.Option("GET", "--method", "-m", help="HTTP method (GET, HEAD, POST)")
+    expected_status: int = typer.Option(
+        200, "--status", "-s", help="Expected HTTP status code"
+    ),
+    timeout: int = typer.Option(
+        10, "--timeout", "-t", help="Request timeout in seconds"
+    ),
+    method: str = typer.Option(
+        "GET", "--method", "-m", help="HTTP method (GET, HEAD, POST)"
+    ),
 ):
     """
     Add a website to monitor.
@@ -155,7 +175,7 @@ def add_website(
         url=url,
         expected_status=expected_status,
         timeout=timeout,
-        method=method.upper()
+        method=method.upper(),
     )
 
     if config.add_website(website):
@@ -170,12 +190,22 @@ def add_website(
 
 @app.command("add-app")
 def add_app(
-    name: str = typer.Option(..., "--name", "-n", help="Unique name for the application"),
-    app_type: str = typer.Option(..., "--type", "-t", help="App type: docker, pm2, process, http, port"),
-    identifier: str = typer.Option(..., "--identifier", "-i", help="Container name, process name, or service ID"),
-    host: Optional[str] = typer.Option(None, "--host", "-H", help="Host address (for remote apps)"),
+    name: str = typer.Option(
+        ..., "--name", "-n", help="Unique name for the application"
+    ),
+    app_type: str = typer.Option(
+        ..., "--type", "-t", help="App type: docker, pm2, process, http, port"
+    ),
+    identifier: str = typer.Option(
+        ..., "--identifier", "-i", help="Container name, process name, or service ID"
+    ),
+    host: Optional[str] = typer.Option(
+        None, "--host", "-H", help="Host address (for remote apps)"
+    ),
     port: Optional[int] = typer.Option(None, "--port", "-p", help="Port number"),
-    health_endpoint: Optional[str] = typer.Option(None, "--health", help="Health check endpoint (e.g., /health)")
+    health_endpoint: Optional[str] = typer.Option(
+        None, "--health", help="Health check endpoint (e.g., /health)"
+    ),
 ):
     """
     Add an application to monitor.
@@ -197,7 +227,9 @@ def add_app(
 
     valid_types = ["docker", "pm2", "process", "http", "port"]
     if app_type.lower() not in valid_types:
-        console.print(f"[red]Invalid app type '{app_type}'. Must be one of: {', '.join(valid_types)}[/red]")
+        console.print(
+            f"[red]Invalid app type '{app_type}'. Must be one of: {', '.join(valid_types)}[/red]"
+        )
         raise typer.Exit(1)
 
     app_config = AppConfig(
@@ -206,7 +238,7 @@ def add_app(
         identifier=identifier,
         host=host,
         port=port,
-        health_endpoint=health_endpoint
+        health_endpoint=health_endpoint,
     )
 
     if config.add_app(app_config):
@@ -226,8 +258,12 @@ def add_app(
 def add_server(
     name: str = typer.Option(..., "--name", "-n", help="Unique name for the server"),
     host: str = typer.Option(..., "--host", "-H", help="Server hostname or IP"),
-    port: int = typer.Option(22, "--port", "-p", help="Port to check (default: 22 for SSH)"),
-    check_type: str = typer.Option("ping", "--check", "-c", help="Check type: ping, ssh, http, port")
+    port: int = typer.Option(
+        22, "--port", "-p", help="Port to check (default: 22 for SSH)"
+    ),
+    check_type: str = typer.Option(
+        "ping", "--check", "-c", help="Check type: ping, ssh, http, port"
+    ),
 ):
     """
     Add a server to monitor.
@@ -248,14 +284,13 @@ def add_server(
 
     valid_checks = ["ping", "ssh", "http", "port"]
     if check_type.lower() not in valid_checks:
-        console.print(f"[red]Invalid check type '{check_type}'. Must be one of: {', '.join(valid_checks)}[/red]")
+        console.print(
+            f"[red]Invalid check type '{check_type}'. Must be one of: {', '.join(valid_checks)}[/red]"
+        )
         raise typer.Exit(1)
 
     server = ServerConfig(
-        name=name,
-        host=host,
-        port=port,
-        check_type=check_type.lower()
+        name=name, host=host, port=port, check_type=check_type.lower()
     )
 
     if config.add_server(server):
@@ -272,10 +307,12 @@ def add_server(
 def remove_resource(
     name: str = typer.Argument(..., help="Name of the resource to remove"),
     resource_type: str = typer.Option(
-        None, "--type", "-t",
-        help="Resource type: website, app, server (auto-detected if unique)"
+        None,
+        "--type",
+        "-t",
+        help="Resource type: website, app, server (auto-detected if unique)",
     ),
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation")
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
 ):
     """
     Remove a monitored resource.
@@ -310,7 +347,9 @@ def remove_resource(
             found.append("server")
 
         if len(found) > 1:
-            console.print(f"[yellow]Multiple resources named '{name}' found: {', '.join(found)}[/yellow]")
+            console.print(
+                f"[yellow]Multiple resources named '{name}' found: {', '.join(found)}[/yellow]"
+            )
             console.print("Please specify --type to remove a specific one.")
             raise typer.Exit(1)
 
@@ -345,8 +384,10 @@ def remove_resource(
 
 @app.command("settings")
 def settings(
-    refresh_interval: Optional[int] = typer.Option(None, "--refresh", "-r", help="Set refresh interval (seconds)"),
-    show: bool = typer.Option(False, "--show", "-s", help="Show current settings")
+    refresh_interval: Optional[int] = typer.Option(
+        None, "--refresh", "-r", help="Set refresh interval (seconds)"
+    ),
+    show: bool = typer.Option(False, "--show", "-s", help="Show current settings"),
 ):
     """
     View or update monitoring settings.
@@ -359,19 +400,23 @@ def settings(
 
     if refresh_interval:
         config.update_settings(refresh_interval=refresh_interval)
-        console.print(f"[green]Refresh interval set to {refresh_interval} seconds.[/green]")
+        console.print(
+            f"[green]Refresh interval set to {refresh_interval} seconds.[/green]"
+        )
 
     if show or not refresh_interval:
         current = config.get_settings()
         console.print()
-        console.print(Panel(
-            f"[bold]Refresh Interval:[/bold] {current.get('refresh_interval', 5)} seconds\n"
-            f"[bold]Alert on Failure:[/bold] {current.get('alert_on_failure', True)}\n"
-            f"[bold]Failure Threshold:[/bold] {current.get('failure_threshold', 3)} consecutive failures\n"
-            f"[bold]History Retention:[/bold] {current.get('history_retention_hours', 24)} hours",
-            title="[bold cyan]Monitoring Settings[/bold cyan]",
-            box=box.ROUNDED
-        ))
+        console.print(
+            Panel(
+                f"[bold]Refresh Interval:[/bold] {current.get('refresh_interval', 5)} seconds\n"
+                f"[bold]Alert on Failure:[/bold] {current.get('alert_on_failure', True)}\n"
+                f"[bold]Failure Threshold:[/bold] {current.get('failure_threshold', 3)} consecutive failures\n"
+                f"[bold]History Retention:[/bold] {current.get('history_retention_hours', 24)} hours",
+                title="[bold cyan]Monitoring Settings[/bold cyan]",
+                box=box.ROUNDED,
+            )
+        )
 
 
 @app.command("demo")
@@ -404,14 +449,18 @@ def demo():
             console.print(f"  [green]+[/green] Website: {website.name} ({website.url})")
             added_count += 1
         else:
-            console.print(f"  [yellow]-[/yellow] Website: {website.name} (already exists)")
+            console.print(
+                f"  [yellow]-[/yellow] Website: {website.name} (already exists)"
+            )
 
     for server in demo_servers:
         if config.add_server(server):
             console.print(f"  [green]+[/green] Server: {server.name} ({server.host})")
             added_count += 1
         else:
-            console.print(f"  [yellow]-[/yellow] Server: {server.name} (already exists)")
+            console.print(
+                f"  [yellow]-[/yellow] Server: {server.name} (already exists)"
+            )
 
     console.print()
     console.print(f"[green]Added {added_count} demo resources.[/green]")

@@ -1,7 +1,5 @@
 """Deployment commands."""
 
-import subprocess
-import time
 from typing import Optional
 
 import typer
@@ -11,34 +9,19 @@ from rich.prompt import Confirm
 
 from devops_cli.config.settings import load_config
 from devops_cli.utils.output import (
-    success, error, warning, info, header,
-    create_table, status_badge, console as out_console
+    success,
+    error,
+    warning,
+    info,
+    header,
+    create_table,
+    status_badge,
 )
+from devops_cli.utils.git_helpers import run_git
+from devops_cli.utils.github_helper import get_github_headers
 
 app = typer.Typer(help="Deployment commands")
 console = Console()
-
-
-def run_git(args: list[str]) -> tuple[bool, str]:
-    """Run a git command."""
-    try:
-        result = subprocess.run(
-            ["git"] + args,
-            capture_output=True,
-            text=True,
-            check=False
-        )
-        return result.returncode == 0, (result.stdout + result.stderr).strip()
-    except FileNotFoundError:
-        return False, "Git not installed"
-
-
-def get_github_headers(token: str) -> dict:
-    """Get GitHub API headers."""
-    return {
-        "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json"
-    }
 
 
 @app.command("status")
@@ -68,7 +51,12 @@ def deploy_status():
 
     table = create_table(
         "",
-        [("Environment", "cyan"), ("Branch", ""), ("Latest Commit", "dim"), ("Status", "")]
+        [
+            ("Environment", "cyan"),
+            ("Branch", ""),
+            ("Latest Commit", "dim"),
+            ("Status", ""),
+        ],
     )
 
     for env_name, env_config in envs.items():
@@ -79,7 +67,7 @@ def deploy_status():
             try:
                 resp = requests.get(
                     f"https://api.github.com/repos/{repo}/branches/{branch}",
-                    headers=get_github_headers(token)
+                    headers=get_github_headers(token),
                 )
                 if resp.ok:
                     data = resp.json()
@@ -101,7 +89,7 @@ def deploy_status():
                 resp = requests.get(
                     f"https://api.github.com/repos/{repo}/actions/runs",
                     params={"branch": branch, "per_page": 1},
-                    headers=get_github_headers(token)
+                    headers=get_github_headers(token),
                 )
                 if resp.ok:
                     runs = resp.json().get("workflow_runs", [])
@@ -112,10 +100,7 @@ def deploy_status():
                 pass
 
         table.add_row(
-            env_name.upper(),
-            branch,
-            commit_info,
-            status_badge(workflow_status)
+            env_name.upper(), branch, commit_info, status_badge(workflow_status)
         )
 
     console.print(table)
@@ -123,9 +108,15 @@ def deploy_status():
 
 @app.command("trigger")
 def trigger_deploy(
-    environment: str = typer.Argument(..., help="Environment to deploy to (dev, staging, prod)"),
-    branch: Optional[str] = typer.Option(None, "--branch", "-b", help="Override branch to deploy"),
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation for prod"),
+    environment: str = typer.Argument(
+        ..., help="Environment to deploy to (dev, staging, prod)"
+    ),
+    branch: Optional[str] = typer.Option(
+        None, "--branch", "-b", help="Override branch to deploy"
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Skip confirmation for prod"
+    ),
 ):
     """Trigger a deployment to an environment."""
     config = load_config()
@@ -169,17 +160,17 @@ def trigger_deploy(
         return
 
     # Look for deploy workflow
-    workflow_names = ["deploy.yml", "deploy.yaml", f"deploy-{environment}.yml", f"deploy-{environment}.yaml"]
+    workflow_names = [
+        "deploy.yml",
+        "deploy.yaml",
+        f"deploy-{environment}.yml",
+        f"deploy-{environment}.yaml",
+    ]
 
     deployed = False
     for workflow in workflow_names:
         url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow}/dispatches"
-        data = {
-            "ref": deploy_branch,
-            "inputs": {
-                "environment": environment
-            }
-        }
+        data = {"ref": deploy_branch, "inputs": {"environment": environment}}
 
         try:
             resp = requests.post(url, json=data, headers=get_github_headers(token))
@@ -199,10 +190,7 @@ def trigger_deploy(
         url = f"https://api.github.com/repos/{repo}/dispatches"
         data = {
             "event_type": f"deploy-{environment}",
-            "client_payload": {
-                "environment": environment,
-                "branch": deploy_branch
-            }
+            "client_payload": {"environment": environment, "branch": deploy_branch},
         }
 
         try:
@@ -211,7 +199,9 @@ def trigger_deploy(
                 success(f"Repository dispatch sent: deploy-{environment}")
             else:
                 error("Failed to trigger deployment")
-                info("Make sure you have a workflow listening for repository_dispatch events")
+                info(
+                    "Make sure you have a workflow listening for repository_dispatch events"
+                )
         except Exception as e:
             error(f"Error: {e}")
 
@@ -279,16 +269,20 @@ def promote(
             console.print(f"\n[link={pr['html_url']}]{pr['html_url']}[/link]")
 
             if Confirm.ask("Merge PR now?", default=False):
-                merge_url = f"https://api.github.com/repos/{repo}/pulls/{pr['number']}/merge"
+                merge_url = (
+                    f"https://api.github.com/repos/{repo}/pulls/{pr['number']}/merge"
+                )
                 merge_resp = requests.put(
                     merge_url,
                     json={"merge_method": "merge"},
-                    headers=get_github_headers(token)
+                    headers=get_github_headers(token),
                 )
                 if merge_resp.ok:
                     success("PR merged successfully!")
                 else:
-                    error(f"Merge failed: {merge_resp.json().get('message', 'Unknown error')}")
+                    error(
+                        f"Merge failed: {merge_resp.json().get('message', 'Unknown error')}"
+                    )
         elif resp.status_code == 422:
             result = resp.json()
             if "No commits" in str(result):
@@ -304,7 +298,9 @@ def promote(
 @app.command("rollback")
 def rollback(
     environment: str = typer.Argument(..., help="Environment to rollback"),
-    commits: int = typer.Option(1, "--commits", "-c", help="Number of commits to rollback"),
+    commits: int = typer.Option(
+        1, "--commits", "-c", help="Number of commits to rollback"
+    ),
 ):
     """Trigger a rollback in an environment."""
     config = load_config()
@@ -347,10 +343,7 @@ def rollback(
         branch = envs[environment].get("branch", "main")
         data = {
             "ref": branch,
-            "inputs": {
-                "environment": environment,
-                "commits": str(commits)
-            }
+            "inputs": {"environment": environment, "commits": str(commits)},
         }
 
         try:
@@ -368,8 +361,12 @@ def rollback(
 
 @app.command("history")
 def deploy_history(
-    environment: Optional[str] = typer.Option(None, "--env", "-e", help="Filter by environment"),
-    limit: int = typer.Option(10, "--limit", "-l", help="Number of deployments to show"),
+    environment: Optional[str] = typer.Option(
+        None, "--env", "-e", help="Filter by environment"
+    ),
+    limit: int = typer.Option(
+        10, "--limit", "-l", help="Number of deployments to show"
+    ),
 ):
     """Show deployment history from GitHub Actions."""
     config = load_config()
@@ -402,10 +399,7 @@ def deploy_history(
             runs = resp.json().get("workflow_runs", [])
 
             # Filter for deploy workflows
-            deploy_runs = [
-                r for r in runs
-                if "deploy" in r["name"].lower()
-            ][:limit]
+            deploy_runs = [r for r in runs if "deploy" in r["name"].lower()][:limit]
 
             if not deploy_runs:
                 info("No deployment runs found")
@@ -413,7 +407,13 @@ def deploy_history(
 
             table = create_table(
                 "",
-                [("Date", "dim"), ("Workflow", "cyan"), ("Branch", ""), ("Status", ""), ("By", "dim")]
+                [
+                    ("Date", "dim"),
+                    ("Workflow", "cyan"),
+                    ("Branch", ""),
+                    ("Status", ""),
+                    ("By", "dim"),
+                ],
             )
 
             for run in deploy_runs:

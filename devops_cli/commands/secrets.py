@@ -4,20 +4,21 @@ import os
 import json
 import base64
 import hashlib
-import getpass
-from typing import Optional, Tuple
+from typing import Optional
 from pathlib import Path
 from datetime import datetime
 
 import typer
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
-from rich.table import Table
 
-from devops_cli.config.settings import load_config
 from devops_cli.utils.output import (
-    success, error, warning, info, header,
-    create_table, console as out_console
+    success,
+    error,
+    warning,
+    info,
+    header,
+    create_table,
 )
 
 app = typer.Typer(help="Secrets and environment variable management")
@@ -31,6 +32,7 @@ ENV_FILE = ".env"
 # SECURITY: Cryptographic Functions using Fernet (AES-128-CBC + HMAC)
 # =============================================================================
 
+
 def _generate_salt() -> bytes:
     """Generate a random 16-byte salt for key derivation."""
     return os.urandom(16)
@@ -39,11 +41,7 @@ def _generate_salt() -> bytes:
 def _derive_key(password: str, salt: bytes) -> bytes:
     """Derive a 32-byte encryption key from password using PBKDF2."""
     return hashlib.pbkdf2_hmac(
-        'sha256',
-        password.encode('utf-8'),
-        salt,
-        iterations=100000,
-        dklen=32
+        "sha256", password.encode("utf-8"), salt, iterations=100000, dklen=32
     )
 
 
@@ -76,11 +74,11 @@ def secure_encrypt(data: str, password: str) -> str:
     fernet = Fernet(fernet_key)
 
     # Encrypt the data
-    encrypted = fernet.encrypt(data.encode('utf-8'))
+    encrypted = fernet.encrypt(data.encode("utf-8"))
 
     # Combine salt + encrypted data and encode
     combined = salt + encrypted
-    return base64.urlsafe_b64encode(combined).decode('utf-8')
+    return base64.urlsafe_b64encode(combined).decode("utf-8")
 
 
 def secure_decrypt(encrypted_data: str, password: str) -> str:
@@ -99,7 +97,7 @@ def secure_decrypt(encrypted_data: str, password: str) -> str:
 
     try:
         # Decode the combined data
-        combined = base64.urlsafe_b64decode(encrypted_data.encode('utf-8'))
+        combined = base64.urlsafe_b64decode(encrypted_data.encode("utf-8"))
 
         # Extract salt (first 16 bytes) and encrypted data
         salt = combined[:16]
@@ -111,7 +109,7 @@ def secure_decrypt(encrypted_data: str, password: str) -> str:
 
         # Decrypt
         decrypted = fernet.decrypt(encrypted)
-        return decrypted.decode('utf-8')
+        return decrypted.decode("utf-8")
     except InvalidToken:
         raise ValueError("Decryption failed: Invalid password or corrupted data")
     except Exception as e:
@@ -136,8 +134,8 @@ def load_env_file(path: Path) -> dict:
         with open(path) as f:
             for line in f:
                 line = line.strip()
-                if line and not line.startswith('#') and '=' in line:
-                    key, _, value = line.partition('=')
+                if line and not line.startswith("#") and "=" in line:
+                    key, _, value = line.partition("=")
                     # Remove quotes if present
                     value = value.strip().strip('"').strip("'")
                     env_vars[key.strip()] = value
@@ -146,7 +144,7 @@ def load_env_file(path: Path) -> dict:
 
 def save_env_file(path: Path, env_vars: dict, comments: list = None):
     """Save environment variables to a file."""
-    with open(path, 'w') as f:
+    with open(path, "w") as f:
         if comments:
             for comment in comments:
                 f.write(f"# {comment}\n")
@@ -154,7 +152,7 @@ def save_env_file(path: Path, env_vars: dict, comments: list = None):
 
         for key, value in sorted(env_vars.items()):
             # Quote values with spaces
-            if ' ' in value or '"' in value:
+            if " " in value or '"' in value:
                 value = f'"{value}"'
             f.write(f"{key}={value}\n")
 
@@ -170,7 +168,7 @@ def init_secrets():
         env_vars = load_env_file(env_path)
         example_path = Path(".env.example")
 
-        with open(example_path, 'w') as f:
+        with open(example_path, "w") as f:
             f.write("# Environment Variables\n")
             f.write("# Copy this file to .env and fill in the values\n\n")
             for key in sorted(env_vars.keys()):
@@ -185,9 +183,15 @@ def init_secrets():
 @app.command("set")
 def set_secret(
     key: str = typer.Argument(..., help="Secret key name"),
-    value: Optional[str] = typer.Option(None, "--value", "-v", help="Secret value (will prompt if not provided)"),
-    env: str = typer.Option("default", "--env", "-e", help="Environment (dev, staging, prod)"),
-    file: Optional[str] = typer.Option(None, "--file", "-f", help="Add to specific .env file"),
+    value: Optional[str] = typer.Option(
+        None, "--value", "-v", help="Secret value (will prompt if not provided)"
+    ),
+    env: str = typer.Option(
+        "default", "--env", "-e", help="Environment (dev, staging, prod)"
+    ),
+    file: Optional[str] = typer.Option(
+        None, "--file", "-f", help="Add to specific .env file"
+    ),
 ):
     """Set a secret value."""
     if value is None:
@@ -237,7 +241,9 @@ def set_secret(
 def get_secret(
     key: str = typer.Argument(..., help="Secret key name"),
     env: str = typer.Option("default", "--env", "-e", help="Environment"),
-    show: bool = typer.Option(False, "--show", "-s", help="Show value (default: masked)"),
+    show: bool = typer.Option(
+        False, "--show", "-s", help="Show value (default: masked)"
+    ),
 ):
     """Get a secret value."""
     secrets_file = SECRETS_DIR / f"{env}.secrets"
@@ -266,7 +272,11 @@ def get_secret(
     if show:
         console.print(f"{key}={value}")
     else:
-        masked = value[:2] + "*" * (len(value) - 4) + value[-2:] if len(value) > 4 else "****"
+        masked = (
+            value[:2] + "*" * (len(value) - 4) + value[-2:]
+            if len(value) > 4
+            else "****"
+        )
         console.print(f"{key}={masked}")
         info("Use --show to reveal the full value")
 
@@ -274,7 +284,9 @@ def get_secret(
 @app.command("list")
 def list_secrets(
     env: str = typer.Option("default", "--env", "-e", help="Environment"),
-    file: Optional[str] = typer.Option(None, "--file", "-f", help="List from .env file"),
+    file: Optional[str] = typer.Option(
+        None, "--file", "-f", help="List from .env file"
+    ),
 ):
     """List all secrets (keys only, not values)."""
     if file:
@@ -367,7 +379,9 @@ def delete_secret(
 def export_secrets(
     output: str = typer.Option(".env", "--output", "-o", help="Output file"),
     env: str = typer.Option("default", "--env", "-e", help="Environment"),
-    append: bool = typer.Option(False, "--append", "-a", help="Append to existing file"),
+    append: bool = typer.Option(
+        False, "--append", "-a", help="Append to existing file"
+    ),
 ):
     """Export secrets to .env file."""
     secrets_file = SECRETS_DIR / f"{env}.secrets"
@@ -396,10 +410,14 @@ def export_secrets(
     else:
         env_vars = {key: data["value"] for key, data in secrets.items()}
 
-    save_env_file(output_path, env_vars, [
-        f"Generated by devops-cli on {datetime.now().isoformat()}",
-        f"Environment: {env}",
-    ])
+    save_env_file(
+        output_path,
+        env_vars,
+        [
+            f"Generated by devops-cli on {datetime.now().isoformat()}",
+            f"Environment: {env}",
+        ],
+    )
 
     success(f"Exported {len(secrets)} secrets to {output}")
     warning("Remember: Never commit .env files to git!")
@@ -472,14 +490,21 @@ def manage_env(
 
         for key, value in sorted(env_vars.items()):
             # Mask sensitive values
-            if any(s in key.lower() for s in ['password', 'secret', 'token', 'key', 'api']):
-                masked = value[:2] + "*" * min(len(value) - 2, 10) if len(value) > 2 else "***"
+            if any(
+                s in key.lower() for s in ["password", "secret", "token", "key", "api"]
+            ):
+                masked = (
+                    value[:2] + "*" * min(len(value) - 2, 10)
+                    if len(value) > 2
+                    else "***"
+                )
                 console.print(f"[cyan]{key}[/]={masked}")
             else:
                 console.print(f"[cyan]{key}[/]={value}")
 
     elif action == "edit":
         import subprocess
+
         editor = os.environ.get("EDITOR", "nano")
 
         if not file_path.exists():
@@ -502,7 +527,7 @@ def manage_env(
         for key, value in env_vars.items():
             if not value:
                 issues.append(f"{key}: Empty value")
-            if ' ' in key:
+            if " " in key:
                 issues.append(f"{key}: Key contains spaces")
 
         if issues:
@@ -550,7 +575,9 @@ def sync_env_files(
 
 @app.command("generate")
 def generate_secret(
-    key: Optional[str] = typer.Option(None, "--key", "-k", help="Save with this key name"),
+    key: Optional[str] = typer.Option(
+        None, "--key", "-k", help="Save with this key name"
+    ),
     length: int = typer.Option(32, "--length", "-l", help="Secret length"),
     env: str = typer.Option("default", "--env", "-e", help="Environment to save to"),
     type: str = typer.Option("random", "--type", "-t", help="Type: random, uuid, hex"),
@@ -562,7 +589,7 @@ def generate_secret(
     if type == "random":
         # Alphanumeric
         alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-        value = ''.join(secrets.choice(alphabet) for _ in range(length))
+        value = "".join(secrets.choice(alphabet) for _ in range(length))
     elif type == "uuid":
         value = str(uuid.uuid4())
     elif type == "hex":

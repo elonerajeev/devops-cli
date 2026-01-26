@@ -7,26 +7,30 @@ This module provides commands for developers to:
 """
 
 import asyncio
-import sys
-import time
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional
 
 import typer
-import httpx
 import yaml
 from rich.console import Console
-from rich.table import Table
 
 from devops_cli.config.websites import load_websites_config, get_website_config
 from devops_cli.utils.output import (
-    success, error, warning, info, header,
-    create_table, status_badge, console as out_console
+    success,
+    error,
+    warning,
+    info,
+    header,
+    create_table,
+    status_badge,
 )
 from devops_cli.monitoring.checker import HealthChecker, WebsiteConfig, HealthStatus
 
-app = typer.Typer(help="Website commands - List, info, and health for configured websites")
+app = typer.Typer(
+    help="Website commands - List, info, and health for configured websites"
+)
 console = Console()
+
 
 def get_website_config_for_check(name: str) -> Optional[WebsiteConfig]:
     """Load website config and convert to WebsiteConfig dataclass."""
@@ -41,7 +45,7 @@ def get_website_config_for_check(name: str) -> Optional[WebsiteConfig]:
         expected_status=website_dict.get("expected_status", 200),
         timeout=website_dict.get("timeout", 10),
         method=website_dict.get("method", "GET"),
-        created_at=website_dict.get("added_at", datetime.now().isoformat())
+        created_at=website_dict.get("added_at", datetime.now().isoformat()),
     )
 
 
@@ -59,7 +63,13 @@ def list_websites():
 
     table = create_table(
         "",
-        [("Name", "cyan"), ("URL", ""), ("Expected Status", "dim"), ("Method", "dim"), ("Teams", "dim")]
+        [
+            ("Name", "cyan"),
+            ("URL", ""),
+            ("Expected Status", "dim"),
+            ("Method", "dim"),
+            ("Teams", "dim"),
+        ],
     )
 
     for name, website in websites.items():
@@ -69,7 +79,7 @@ def list_websites():
             website.get("url", "-"),
             str(website.get("expected_status", "N/A")),
             website.get("method", "GET"),
-            teams[:20]
+            teams[:20],
         )
 
     console.print(table)
@@ -108,31 +118,37 @@ def website_health(
 
     # Convert to WebsiteConfig dataclass for the checker
     website_config = get_website_config_for_check(name)
-    if not website_config: # Should not happen if website_config_data exists, but for type safety
+    if (
+        not website_config
+    ):  # Should not happen if website_config_data exists, but for type safety
         error(f"Failed to load WebsiteConfig for '{name}'")
         return
 
     header(f"Health Check: {name}")
     info(f"URL: {website_config.url}")
-    
+
     checker = HealthChecker()
     # Run async check in a synchronous context
     result = asyncio.run(checker.check_website(website_config))
 
     console.print()
-    table = create_table(
-        "",
-        [("Attribute", "cyan"), ("Value", "")]
-    )
+    table = create_table("", [("Attribute", "cyan"), ("Value", "")])
     table.add_row("Name", result.name)
     table.add_row("Status", status_badge(result.status.value))
     table.add_row("Message", result.message)
-    table.add_row("Response Time", f"{result.response_time_ms:.1f}ms" if result.response_time_ms is not None else "-")
+    table.add_row(
+        "Response Time",
+        (
+            f"{result.response_time_ms:.1f}ms"
+            if result.response_time_ms is not None
+            else "-"
+        ),
+    )
     table.add_row("Checked At", result.checked_at.strftime("%Y-%m-%d %H:%M:%S"))
-    
+
     for key, value in result.details.items():
-        table.add_row(key.replace('_', ' ').title(), str(value))
-    
+        table.add_row(key.replace("_", " ").title(), str(value))
+
     console.print(table)
     if result.status == HealthStatus.HEALTHY:
         success(f"Website '{name}' is healthy!")

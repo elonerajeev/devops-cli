@@ -1,52 +1,40 @@
 """Git and CI/CD commands."""
 
-import subprocess
 import typer
 import requests
 from typing import Optional
 from rich.console import Console
-from rich.table import Table
-from rich.prompt import Prompt, Confirm
+from rich.prompt import Prompt
 
 from devops_cli.config.settings import load_config
 from devops_cli.config.repos import load_repos, get_repo_config
 from devops_cli.utils.output import (
-    success, error, warning, info, header,
-    create_table, status_badge, console as out_console
+    success,
+    error,
+    warning,
+    info,
+    header,
+    create_table,
 )
+from devops_cli.utils.git_helpers import run_git
 from devops_cli.utils.github_helper import (
-    get_latest_commit, get_workflow_runs, get_workflow_jobs,
-    format_time_ago, get_status_emoji, get_status_color, get_status_message
+    get_github_headers,
+    get_latest_commit,
+    get_workflow_runs,
+    get_workflow_jobs,
+    format_time_ago,
+    get_status_emoji,
+    get_status_color,
+    get_status_message,
 )
 
 app = typer.Typer(help="Git & CI/CD operations")
 console = Console()
 
 
-def run_git(args: list[str], capture: bool = True) -> tuple[bool, str]:
-    """Run a git command and return success status and output."""
-    try:
-        result = subprocess.run(
-            ["git"] + args,
-            capture_output=capture,
-            text=True,
-            check=False
-        )
-        output = result.stdout + result.stderr
-        return result.returncode == 0, output.strip()
-    except FileNotFoundError:
-        return False, "Git is not installed"
-
-
-def get_github_headers(token: str) -> dict:
-    """Get GitHub API headers."""
-    return {
-        "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json"
-    }
-
-
-def resolve_repo(repo_name: Optional[str] = None) -> tuple[bool, Optional[str], Optional[str]]:
+def resolve_repo(
+    repo_name: Optional[str] = None,
+) -> tuple[bool, Optional[str], Optional[str]]:
     """
     Resolve repository owner and name.
 
@@ -140,10 +128,14 @@ def git_status():
 
 @app.command("pr")
 def create_pr(
-    repo_name: Optional[str] = typer.Option(None, "--repo", "-r", help="Configured repository name"),
+    repo_name: Optional[str] = typer.Option(
+        None, "--repo", "-r", help="Configured repository name"
+    ),
     title: Optional[str] = typer.Option(None, "--title", "-t", help="PR title"),
     body: Optional[str] = typer.Option(None, "--body", "-b", help="PR description"),
-    from_branch: Optional[str] = typer.Option(None, "--from", help="Source branch (required if using --repo)"),
+    from_branch: Optional[str] = typer.Option(
+        None, "--from", help="Source branch (required if using --repo)"
+    ),
     base: str = typer.Option("main", "--base", help="Base branch"),
     draft: bool = typer.Option(False, "--draft", "-d", help="Create as draft PR"),
 ):
@@ -176,7 +168,9 @@ def create_pr(
         # Using configured repo - require --from flag
         if not from_branch:
             error("When using --repo, you must specify --from <branch>")
-            info("Example: devops git pr --repo backend --from feature-branch --base main")
+            info(
+                "Example: devops git pr --repo backend --from feature-branch --base main"
+            )
             return
         branch = from_branch
     else:
@@ -246,7 +240,7 @@ def create_pr(
                 prs_resp = requests.get(
                     f"https://api.github.com/repos/{owner}/{repo}/pulls",
                     params={"head": f"{owner}:{branch}"},
-                    headers=get_github_headers(token)
+                    headers=get_github_headers(token),
                 )
                 if prs_resp.ok and prs_resp.json():
                     pr = prs_resp.json()[0]
@@ -261,7 +255,9 @@ def create_pr(
 
 @app.command("pipeline")
 def pipeline_status(
-    repo_name: Optional[str] = typer.Option(None, "--repo", "-r", help="Configured repository name"),
+    repo_name: Optional[str] = typer.Option(
+        None, "--repo", "-r", help="Configured repository name"
+    ),
     branch: Optional[str] = typer.Option(None, "--branch", "-b", help="Branch name"),
     limit: int = typer.Option(10, "--limit", "-l", help="Number of runs to show"),
 ):
@@ -287,7 +283,9 @@ def pipeline_status(
             info("List repos: devops admin repo-list")
             info("Add repo: devops admin repo-add")
         else:
-            error("Not in a git repository. Use --repo flag to specify a configured repo.")
+            error(
+                "Not in a git repository. Use --repo flag to specify a configured repo."
+            )
             info("Example: devops git pipeline --repo backend")
         return
 
@@ -311,7 +309,7 @@ def pipeline_status(
     # Get latest commit info
     commit_info = get_latest_commit(owner, repo, branch, token)
     if commit_info:
-        console.print(f"[bold]Latest Commit:[/]")
+        console.print("[bold]Latest Commit:[/]")
         console.print(f"  ID:      [yellow]{commit_info['sha']}[/]")
         console.print(f"  Message: {commit_info['message']}")
         console.print(f"  Author:  {commit_info['author']}")
@@ -335,7 +333,13 @@ def pipeline_status(
     # Display workflow runs
     table = create_table(
         "Pipeline History",
-        [("", ""), ("Workflow", "cyan"), ("Status", ""), ("Commit", "dim"), ("Time", "dim")]
+        [
+            ("", ""),
+            ("Workflow", "cyan"),
+            ("Status", ""),
+            ("Commit", "dim"),
+            ("Time", "dim"),
+        ],
     )
 
     for run in runs:
@@ -352,7 +356,7 @@ def pipeline_status(
             run["name"][:30],
             f"[{status_color}]{status_text}[/]",
             run["head_sha"],
-            format_time_ago(run["updated_at"])
+            format_time_ago(run["updated_at"]),
         )
 
     console.print(table)
@@ -391,8 +395,12 @@ def pipeline_status(
 
 @app.command("prs")
 def list_prs(
-    repo_name: Optional[str] = typer.Option(None, "--repo", "-r", help="Configured repository name"),
-    state: str = typer.Option("open", "--state", "-s", help="PR state: open, closed, all"),
+    repo_name: Optional[str] = typer.Option(
+        None, "--repo", "-r", help="Configured repository name"
+    ),
+    state: str = typer.Option(
+        "open", "--state", "-s", help="PR state: open, closed, all"
+    ),
     limit: int = typer.Option(10, "--limit", "-l", help="Number of PRs to show"),
 ):
     """List pull requests.
@@ -436,7 +444,7 @@ def list_prs(
 
             table = create_table(
                 f"{state.title()} PRs",
-                [("#", "cyan"), ("Title", ""), ("Author", "dim"), ("Branch", "dim")]
+                [("#", "cyan"), ("Title", ""), ("Author", "dim"), ("Branch", "dim")],
             )
 
             for pr in prs:
@@ -444,7 +452,7 @@ def list_prs(
                     str(pr["number"]),
                     pr["title"][:50] + ("..." if len(pr["title"]) > 50 else ""),
                     pr["user"]["login"],
-                    pr["head"]["ref"][:20]
+                    pr["head"]["ref"][:20],
                 )
 
             console.print(table)
@@ -457,7 +465,9 @@ def list_prs(
 @app.command("trigger")
 def trigger_workflow(
     workflow: str = typer.Argument(..., help="Workflow file name or ID"),
-    repo_name: Optional[str] = typer.Option(None, "--repo", "-r", help="Configured repository name"),
+    repo_name: Optional[str] = typer.Option(
+        None, "--repo", "-r", help="Configured repository name"
+    ),
     branch: str = typer.Option("main", "--branch", "-b", help="Branch to run on"),
 ):
     """Trigger a GitHub Actions workflow.
@@ -497,7 +507,9 @@ def trigger_workflow(
             success(f"Workflow '{workflow}' triggered on branch '{branch}'")
             info(f"View at: https://github.com/{repo_full}/actions")
         elif resp.status_code == 404:
-            error(f"Workflow '{workflow}' not found. Make sure workflow_dispatch is enabled.")
+            error(
+                f"Workflow '{workflow}' not found. Make sure workflow_dispatch is enabled."
+            )
         else:
             error(f"Failed to trigger workflow: {resp.status_code}")
     except requests.RequestException as e:
@@ -506,7 +518,9 @@ def trigger_workflow(
 
 @app.command("repos")
 def list_repos_command(
-    show_commits: bool = typer.Option(False, "--commits", "-c", help="Show latest commit info"),
+    show_commits: bool = typer.Option(
+        False, "--commits", "-c", help="Show latest commit info"
+    ),
 ):
     """List all configured repositories.
 
@@ -534,12 +548,22 @@ def list_repos_command(
     if show_commits:
         table = create_table(
             "",
-            [("Name", "cyan"), ("Owner/Repo", ""), ("Commit", "yellow"), ("Message", "dim")]
+            [
+                ("Name", "cyan"),
+                ("Owner/Repo", ""),
+                ("Commit", "yellow"),
+                ("Message", "dim"),
+            ],
         )
     else:
         table = create_table(
             "",
-            [("Name", "cyan"), ("Owner/Repo", ""), ("Branch", "dim"), ("Description", "dim")]
+            [
+                ("Name", "cyan"),
+                ("Owner/Repo", ""),
+                ("Branch", "dim"),
+                ("Description", "dim"),
+            ],
         )
 
     for name, repo in repos.items():
@@ -548,30 +572,17 @@ def list_repos_command(
 
         if show_commits and token:
             # Fetch latest commit info
-            commit = get_latest_commit(repo['owner'], repo['repo'], branch, token)
+            commit = get_latest_commit(repo["owner"], repo["repo"], branch, token)
 
             if commit:
-                table.add_row(
-                    name,
-                    owner_repo,
-                    commit['sha'],
-                    commit['message'][:60]
-                )
+                table.add_row(name, owner_repo, commit["sha"], commit["message"][:60])
             else:
                 table.add_row(
-                    name,
-                    owner_repo,
-                    "[dim]N/A[/]",
-                    "[dim]Could not fetch[/]"
+                    name, owner_repo, "[dim]N/A[/]", "[dim]Could not fetch[/]"
                 )
         else:
             description = repo.get("description", "")[:50]
-            table.add_row(
-                name,
-                owner_repo,
-                branch,
-                description
-            )
+            table.add_row(name, owner_repo, branch, description)
 
     console.print(table)
     info(f"\nTotal: {len(repos)} repositories")
@@ -589,7 +600,9 @@ def list_repos_command(
 
 @app.command("repo-info")
 def repo_info(
-    repo_name: Optional[str] = typer.Option(None, "--repo", "-r", help="Configured repository name"),
+    repo_name: Optional[str] = typer.Option(
+        None, "--repo", "-r", help="Configured repository name"
+    ),
 ):
     """Show detailed repository information with current commit.
 
@@ -620,7 +633,7 @@ def repo_info(
 
     # Show configured info
     if repo_config:
-        console.print(f"[bold]Configuration:[/]")
+        console.print("[bold]Configuration:[/]")
         console.print(f"  Name:        {repo_name}")
         console.print(f"  Description: {repo_config.get('description', 'N/A')}")
         console.print(f"  Language:    {repo_config.get('language', 'N/A')}")
@@ -634,7 +647,9 @@ def repo_info(
 
     if commit_info:
         console.print(f"[bold]Latest Commit ({branch}):[/]")
-        console.print(f"  Commit ID:   [yellow]{commit_info['sha']}[/] ([dim]{commit_info['sha_full']}[/])")
+        console.print(
+            f"  Commit ID:   [yellow]{commit_info['sha']}[/] ([dim]{commit_info['sha_full']}[/])"
+        )
         console.print(f"  Message:     {commit_info['message']}")
         console.print(f"  Author:      {commit_info['author']}")
         console.print(f"  Time:        {format_time_ago(commit_info['date'])}")
@@ -651,11 +666,15 @@ def repo_info(
         status_color = get_status_color(latest_run["status"], latest_run["conclusion"])
         emoji = get_status_emoji(latest_run["status"], latest_run["conclusion"])
 
-        console.print(f"[bold]Latest Pipeline:[/]")
-        console.print(f"  Status:      [{status_color}]{emoji} {latest_run['status']}[/]")
+        console.print("[bold]Latest Pipeline:[/]")
+        console.print(
+            f"  Status:      [{status_color}]{emoji} {latest_run['status']}[/]"
+        )
 
         if latest_run["status"] == "completed":
-            console.print(f"  Result:      [{status_color}]{latest_run['conclusion']}[/]")
+            console.print(
+                f"  Result:      [{status_color}]{latest_run['conclusion']}[/]"
+            )
 
         console.print(f"  Workflow:    {latest_run['name']}")
         console.print(f"  Updated:     {format_time_ago(latest_run['updated_at'])}")

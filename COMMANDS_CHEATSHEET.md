@@ -144,7 +144,6 @@ devops monitor                                 # Live dashboard
 devops monitor --once                          # Single check
 devops monitor list                            # List resources
 devops monitor add-website -n x -u url         # Add website
-devops monitor add-app -n x -t docker -i name  # Add app
 devops monitor add-server -n x -H host         # Add server
 devops monitor remove <name>                   # Remove resource
 

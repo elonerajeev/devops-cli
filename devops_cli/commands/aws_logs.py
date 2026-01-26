@@ -1,26 +1,25 @@
 """AWS Logs - CloudWatch log viewing for developers."""
 
-import sys
 import time
-import re
-from datetime import datetime, timedelta
-from typing import Optional, List
-from pathlib import Path
+from datetime import datetime
+from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.live import Live
-from rich.table import Table
-from rich.panel import Panel
-from rich.syntax import Syntax
-from rich.text import Text
 
 from devops_cli.config.settings import load_config
-from devops_cli.config.aws_credentials import load_aws_credentials
 from devops_cli.utils.output import (
-    success, error, warning, info, header,
-    create_table, status_badge, console as out_console
+    success,
+    error,
+    warning,
+    info,
+    header,
+    create_table,
 )
+# Import utilities (moved from duplicated code)
+from devops_cli.utils.time_helpers import parse_time_range
+from devops_cli.utils.log_formatters import colorize_log_level
+from devops_cli.utils.aws_helpers import get_aws_session_from_credentials
 
 app = typer.Typer(help="AWS Logs - View CloudWatch logs securely")
 console = Console()
@@ -30,99 +29,39 @@ console = Console()
 try:
     import boto3
     from botocore.exceptions import ClientError, NoCredentialsError, ProfileNotFound
+
     BOTO3_AVAILABLE = True
 except ImportError:
     BOTO3_AVAILABLE = False
 
 
-def get_aws_session(region: Optional[str] = None):
-    """
-    Get AWS session using stored credentials.
-
-    Does NOT use ~/.aws/credentials or environment variables.
-    Only uses credentials configured via: devops admin aws-configure
-    """
-    if not BOTO3_AVAILABLE:
-        error("boto3 is not installed. Run: pip install boto3")
-        raise typer.Exit(1)
-
-    # Load credentials from secure storage
-    creds = load_aws_credentials()
-
-    if not creds:
-        error("AWS credentials not configured")
-        info("Ask your admin to configure AWS access with:")
-        info("  devops admin aws-configure")
-        raise typer.Exit(1)
-
-    # Use explicit credentials (NOT boto3's default credential chain)
-    try:
-        session = boto3.Session(
-            aws_access_key_id=creds['access_key'],
-            aws_secret_access_key=creds['secret_key'],
-            region_name=region or creds['region']
-        )
-        return session
-    except Exception as e:
-        error(f"Failed to create AWS session: {e}")
-        info("Contact your admin to reconfigure AWS credentials")
-        raise typer.Exit(1)
-
-
-def parse_time_range(time_str: str) -> datetime:
-    """Parse time string like '1h', '30m', '2d' to datetime."""
-    now = datetime.utcnow()
-
-    if time_str.endswith('m'):
-        minutes = int(time_str[:-1])
-        return now - timedelta(minutes=minutes)
-    elif time_str.endswith('h'):
-        hours = int(time_str[:-1])
-        return now - timedelta(hours=hours)
-    elif time_str.endswith('d'):
-        days = int(time_str[:-1])
-        return now - timedelta(days=days)
-    else:
-        # Try parsing as ISO format
-        try:
-            return datetime.fromisoformat(time_str)
-        except ValueError:
-            return now - timedelta(hours=1)
-
-
-def colorize_log_level(message: str) -> Text:
-    """Colorize log message based on level."""
-    text = Text(message)
-
-    # Common log level patterns
-    if re.search(r'\b(ERROR|FATAL|CRITICAL)\b', message, re.IGNORECASE):
-        text.stylize("bold red")
-    elif re.search(r'\bWARN(ING)?\b', message, re.IGNORECASE):
-        text.stylize("yellow")
-    elif re.search(r'\bINFO\b', message, re.IGNORECASE):
-        text.stylize("green")
-    elif re.search(r'\bDEBUG\b', message, re.IGNORECASE):
-        text.stylize("dim")
-
-    return text
 
 
 # ==================== CloudWatch Commands ====================
 
+
 @app.command("cloudwatch")
 def cloudwatch_logs(
     log_group: str = typer.Argument(..., help="CloudWatch log group name"),
-    stream: Optional[str] = typer.Option(None, "--stream", "-s", help="Specific log stream"),
+    stream: Optional[str] = typer.Option(
+        None, "--stream", "-s", help="Specific log stream"
+    ),
     since: str = typer.Option("1h", "--since", help="Time range (e.g., 30m, 1h, 2d)"),
-    filter_pattern: Optional[str] = typer.Option(None, "--filter", "-f", help="CloudWatch filter pattern"),
-    grep: Optional[str] = typer.Option(None, "--grep", "-g", help="Grep pattern to highlight"),
+    filter_pattern: Optional[str] = typer.Option(
+        None, "--filter", "-f", help="CloudWatch filter pattern"
+    ),
+    grep: Optional[str] = typer.Option(
+        None, "--grep", "-g", help="Grep pattern to highlight"
+    ),
     limit: int = typer.Option(100, "--limit", "-l", help="Max number of events"),
-    follow: bool = typer.Option(False, "--follow", "-F", help="Follow logs in real-time"),
+    follow: bool = typer.Option(
+        False, "--follow", "-F", help="Follow logs in real-time"
+    ),
     region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
 ):
     """View CloudWatch logs."""
-    session = get_aws_session(region)
-    logs_client = session.client('logs')
+    session = get_aws_session_from_credentials(region)
+    logs_client = session.client("logs")
 
     start_time = parse_time_range(since)
     start_timestamp = int(start_time.timestamp() * 1000)
@@ -135,9 +74,19 @@ def cloudwatch_logs(
 
     try:
         if follow:
-            _follow_cloudwatch_logs(logs_client, log_group, stream, filter_pattern, grep, start_timestamp)
+            _follow_cloudwatch_logs(
+                logs_client, log_group, stream, filter_pattern, grep, start_timestamp
+            )
         else:
-            _fetch_cloudwatch_logs(logs_client, log_group, stream, filter_pattern, grep, start_timestamp, limit)
+            _fetch_cloudwatch_logs(
+                logs_client,
+                log_group,
+                stream,
+                filter_pattern,
+                grep,
+                start_timestamp,
+                limit,
+            )
     except ClientError as e:
         error(f"AWS Error: {e.response['Error']['Message']}")
     except KeyboardInterrupt:
@@ -145,7 +94,9 @@ def cloudwatch_logs(
         info("Stopped")
 
 
-def _fetch_cloudwatch_logs(client, log_group, stream, filter_pattern, grep, start_timestamp, limit):
+def _fetch_cloudwatch_logs(
+    client, log_group, stream, filter_pattern, grep, start_timestamp, limit
+):
     """Fetch CloudWatch logs."""
     kwargs = {
         "logGroupName": log_group,
@@ -191,7 +142,9 @@ def _fetch_cloudwatch_logs(client, log_group, stream, filter_pattern, grep, star
             raise
 
 
-def _follow_cloudwatch_logs(client, log_group, stream, filter_pattern, grep, start_timestamp):
+def _follow_cloudwatch_logs(
+    client, log_group, stream, filter_pattern, grep, start_timestamp
+):
     """Follow CloudWatch logs in real-time."""
     info("Following logs (Ctrl+C to stop)...\n")
 
@@ -248,13 +201,14 @@ def _follow_cloudwatch_logs(client, log_group, stream, filter_pattern, grep, sta
 
 @app.command("groups")
 def list_log_groups(
-    prefix: Optional[str] = typer.Option(None, "--prefix", "-p", help="Filter by prefix"),
-    
+    prefix: Optional[str] = typer.Option(
+        None, "--prefix", "-p", help="Filter by prefix"
+    ),
     region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
 ):
     """List CloudWatch log groups."""
-    session = get_aws_session(region)
-    logs_client = session.client('logs')
+    session = get_aws_session_from_credentials(region)
+    logs_client = session.client("logs")
 
     header("CloudWatch Log Groups")
 
@@ -263,7 +217,7 @@ def list_log_groups(
         if prefix:
             kwargs["logGroupNamePrefix"] = prefix
 
-        paginator = logs_client.get_paginator('describe_log_groups')
+        paginator = logs_client.get_paginator("describe_log_groups")
         log_groups = []
 
         for page in paginator.paginate(**kwargs):
@@ -275,7 +229,12 @@ def list_log_groups(
 
         table = create_table(
             "",
-            [("Log Group", "cyan"), ("Size", ""), ("Retention", "dim"), ("Created", "dim")]
+            [
+                ("Log Group", "cyan"),
+                ("Size", ""),
+                ("Retention", "dim"),
+                ("Created", "dim"),
+            ],
         )
 
         for lg in log_groups[:50]:  # Limit display
@@ -283,9 +242,16 @@ def list_log_groups(
             size_bytes = lg.get("storedBytes", 0)
             size = f"{size_bytes / 1024 / 1024:.1f} MB" if size_bytes > 0 else "-"
             retention = lg.get("retentionInDays", "Never")
-            created = datetime.fromtimestamp(lg["creationTime"] / 1000).strftime("%Y-%m-%d")
+            created = datetime.fromtimestamp(lg["creationTime"] / 1000).strftime(
+                "%Y-%m-%d"
+            )
 
-            table.add_row(name, size, str(retention) + " days" if retention != "Never" else "Never", created)
+            table.add_row(
+                name,
+                size,
+                str(retention) + " days" if retention != "Never" else "Never",
+                created,
+            )
 
         console.print(table)
         info(f"\nTotal: {len(log_groups)} log groups")
@@ -297,13 +263,14 @@ def list_log_groups(
 @app.command("streams")
 def list_log_streams(
     log_group: str = typer.Argument(..., help="Log group name"),
-    prefix: Optional[str] = typer.Option(None, "--prefix", "-p", help="Filter by prefix"),
-    
+    prefix: Optional[str] = typer.Option(
+        None, "--prefix", "-p", help="Filter by prefix"
+    ),
     region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
 ):
     """List log streams in a log group."""
-    session = get_aws_session(region)
-    logs_client = session.client('logs')
+    session = get_aws_session_from_credentials(region)
+    logs_client = session.client("logs")
 
     header(f"Log Streams: {log_group}")
 
@@ -326,8 +293,7 @@ def list_log_streams(
             return
 
         table = create_table(
-            "",
-            [("Stream", "cyan"), ("Last Event", ""), ("Size", "dim")]
+            "", [("Stream", "cyan"), ("Last Event", ""), ("Size", "dim")]
         )
 
         for stream in streams:
@@ -337,7 +303,9 @@ def list_log_streams(
 
             last_event = stream.get("lastEventTimestamp")
             if last_event:
-                last_event = datetime.fromtimestamp(last_event / 1000).strftime("%Y-%m-%d %H:%M")
+                last_event = datetime.fromtimestamp(last_event / 1000).strftime(
+                    "%Y-%m-%d %H:%M"
+                )
             else:
                 last_event = "-"
 
@@ -354,17 +322,19 @@ def list_log_streams(
 
 # ==================== Search Commands ====================
 
+
 @app.command("search")
 def search_logs(
     pattern: str = typer.Argument(..., help="Search pattern"),
-    log_groups: Optional[str] = typer.Option(None, "--groups", "-g", help="Comma-separated log groups"),
+    log_groups: Optional[str] = typer.Option(
+        None, "--groups", "-g", help="Comma-separated log groups"
+    ),
     since: str = typer.Option("1h", "--since", help="Time range"),
-    
     region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
 ):
     """Search across multiple log groups."""
-    session = get_aws_session(region)
-    logs_client = session.client('logs')
+    session = get_aws_session_from_credentials(region)
+    logs_client = session.client("logs")
 
     config = load_config()
     apps = config.get("aws", {}).get("apps", {})
@@ -425,19 +395,21 @@ def search_logs(
 
 # ==================== Activity/Audit Commands ====================
 
+
 @app.command("activity")
 def view_activity(
-    service: Optional[str] = typer.Option(None, "--service", "-s", help="Filter by service"),
+    service: Optional[str] = typer.Option(
+        None, "--service", "-s", help="Filter by service"
+    ),
     user: Optional[str] = typer.Option(None, "--user", "-u", help="Filter by user"),
     since: str = typer.Option("24h", "--since", help="Time range"),
-    
     region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
 ):
     """View AWS CloudTrail activity (audit logs)."""
-    session = get_aws_session(region)
+    session = get_aws_session_from_credentials(region)
 
     try:
-        cloudtrail = session.client('cloudtrail')
+        cloudtrail = session.client("cloudtrail")
     except Exception:
         error("CloudTrail client not available")
         return
@@ -465,8 +437,7 @@ def view_activity(
             return
 
         table = create_table(
-            "",
-            [("Time", "dim"), ("User", "cyan"), ("Action", ""), ("Resource", "dim")]
+            "", [("Time", "dim"), ("User", "cyan"), ("Action", ""), ("Resource", "dim")]
         )
 
         for event in events:
@@ -494,14 +465,15 @@ def view_activity(
 
 @app.command("errors")
 def view_errors(
-    app: Optional[str] = typer.Option(None, "--app", "-a", help="App name (from your apps.yaml config)"),
+    app: Optional[str] = typer.Option(
+        None, "--app", "-a", help="App name (from your apps.yaml config)"
+    ),
     since: str = typer.Option("6h", "--since", help="Time range"),
-    
     region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
 ):
     """View error logs from all applications."""
-    session = get_aws_session(region)
-    logs_client = session.client('logs')
+    session = get_aws_session_from_credentials(region)
+    logs_client = session.client("logs")
 
     config = load_config()
     apps_config = config.get("aws", {}).get("apps", {})
@@ -569,6 +541,7 @@ def view_errors(
 
 
 # ==================== Configuration ====================
+
 
 @app.command("configure")
 def configure_aws():

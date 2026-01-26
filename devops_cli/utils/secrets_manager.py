@@ -8,32 +8,39 @@ Supports secret references in configuration files:
 
 import os
 import re
-import json
 import boto3
 from typing import Optional, Any, Dict, Union
 
 from botocore.exceptions import ClientError, NoCredentialsError
 
 # Regex patterns for secret references
-ENV_VAR_PATTERN = re.compile(r'\$\{([A-Z_][A-Z0-9_]*)\}')
-AWS_SECRET_PATTERN = re.compile(r'\$\{AWS_SECRET:([^}]+)\}')
-GITHUB_SECRET_PATTERN = re.compile(r'\$\{GITHUB_SECRET:([^}]+)\}')
+ENV_VAR_PATTERN = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)\}")
+AWS_SECRET_PATTERN = re.compile(r"\$\{AWS_SECRET:([^}]+)\}")
+GITHUB_SECRET_PATTERN = re.compile(r"\$\{GITHUB_SECRET:([^}]+)\}")
 
 # Assuming these imports exist and are accessible from a shared context
 from devops_cli.config.settings import load_config
-from devops_cli.config.aws_credentials import load_aws_credentials # For explicit credentials
+from devops_cli.config.aws_credentials import (
+    load_aws_credentials,
+)  # For explicit credentials
+
 
 def _get_secrets_manager_client():
     """Helper to get an authenticated AWS Secrets Manager client."""
     # Attempt to load credentials configured via devops admin aws-configure
     creds = load_aws_credentials()
-    if creds and creds.get("access_key") and creds.get("secret_key") and creds.get("region"):
+    if (
+        creds
+        and creds.get("access_key")
+        and creds.get("secret_key")
+        and creds.get("region")
+    ):
         try:
             return boto3.client(
-                'secretsmanager',
+                "secretsmanager",
                 aws_access_key_id=creds["access_key"],
                 aws_secret_access_key=creds["secret_key"],
-                region_name=creds["region"]
+                region_name=creds["region"],
             )
         except Exception:
             # Fallback to default AWS environment configuration
@@ -42,17 +49,24 @@ def _get_secrets_manager_client():
     # Fallback to default AWS environment configuration (e.g., IAM role, ~/.aws/credentials)
     try:
         config = load_config()
-        aws_region = config.get("aws", {}).get("default_region", os.environ.get("AWS_REGION", "us-east-1"))
-        return boto3.client('secretsmanager', region_name=aws_region)
+        aws_region = config.get("aws", {}).get(
+            "default_region", os.environ.get("AWS_REGION", "us-east-1")
+        )
+        return boto3.client("secretsmanager", region_name=aws_region)
     except Exception:
         # If all else fails, return None and let caller handle the error
         return None
 
-def set_secret(name: str, value: str, description: Optional[str] = None, overwrite: bool = False) -> bool:
+
+def set_secret(
+    name: str, value: str, description: Optional[str] = None, overwrite: bool = False
+) -> bool:
     """Store a secret in AWS Secrets Manager."""
     client = _get_secrets_manager_client()
     if not client:
-        print("Error: Could not get AWS Secrets Manager client. Check AWS configuration.")
+        print(
+            "Error: Could not get AWS Secrets Manager client. Check AWS configuration."
+        )
         return False
 
     try:
@@ -62,37 +76,42 @@ def set_secret(name: str, value: str, description: Optional[str] = None, overwri
             client.describe_secret(SecretId=name)
             exists = True
         except ClientError as e:
-            if e.response['Error']['Code'] != 'ResourceNotFoundException':
+            if e.response["Error"]["Code"] != "ResourceNotFoundException":
                 print(f"Error checking secret '{name}': {e}")
                 return False
 
         if exists and not overwrite:
-            print(f"Error: Secret '{name}' already exists. Use overwrite=True to update.")
+            print(
+                f"Error: Secret '{name}' already exists. Use overwrite=True to update."
+            )
             return False
 
         if exists:
             client.update_secret(
                 SecretId=name,
                 SecretString=value,
-                Description=description or f"Secret managed by DevOps CLI"
+                Description=description or "Secret managed by DevOps CLI",
             )
             print(f"Secret '{name}' updated successfully in AWS Secrets Manager.")
         else:
             client.create_secret(
                 Name=name,
                 SecretString=value,
-                Description=description or f"Secret managed by DevOps CLI"
+                Description=description or "Secret managed by DevOps CLI",
             )
             print(f"Secret '{name}' created successfully in AWS Secrets Manager.")
         return True
 
     except (ClientError, NoCredentialsError) as e:
         print(f"Error setting secret '{name}': {e}")
-        print("Hint: Ensure AWS credentials are configured and have Secrets Manager permissions.")
+        print(
+            "Hint: Ensure AWS credentials are configured and have Secrets Manager permissions."
+        )
         return False
     except Exception as e:
         print(f"An unexpected error occurred while setting secret '{name}': {e}")
         return False
+
 
 def get_secret(name: str) -> Optional[str]:
     """Retrieve a secret from AWS Secrets Manager."""
@@ -102,14 +121,14 @@ def get_secret(name: str) -> Optional[str]:
 
     try:
         response = client.get_secret_value(SecretId=name)
-        return response['SecretString']
+        return response["SecretString"]
     except ClientError as e:
-        if e.response['Error']['Code'] == 'ResourceNotFoundException':
+        if e.response["Error"]["Code"] == "ResourceNotFoundException":
             print(f"Warning: Secret '{name}' not found in AWS Secrets Manager.")
         else:
             print(f"Error retrieving secret '{name}': {e}")
         return None
-    except (NoCredentialsError) as e:
+    except NoCredentialsError as e:
         print(f"Error retrieving secret '{name}': {e}")
         print("Hint: Ensure AWS credentials are configured.")
         return None
@@ -133,7 +152,7 @@ def resolve_secret_reference(value: str) -> str:
     Returns:
         Resolved string with secrets replaced, or original if no match
     """
-    if not isinstance(value, str) or '${' not in value:
+    if not isinstance(value, str) or "${" not in value:
         return value
 
     result = value
@@ -161,7 +180,7 @@ def resolve_secret_reference(value: str) -> str:
     for match in ENV_VAR_PATTERN.finditer(result):
         # Skip if it's an AWS_SECRET or GITHUB_SECRET pattern
         full_match = match.group(0)
-        if 'AWS_SECRET:' in full_match or 'GITHUB_SECRET:' in full_match:
+        if "AWS_SECRET:" in full_match or "GITHUB_SECRET:" in full_match:
             continue
 
         var_name = match.group(1)
@@ -236,9 +255,9 @@ def has_secret_references(value: Union[str, Dict, list]) -> bool:
     """
     if isinstance(value, str):
         return bool(
-            ENV_VAR_PATTERN.search(value) or
-            AWS_SECRET_PATTERN.search(value) or
-            GITHUB_SECRET_PATTERN.search(value)
+            ENV_VAR_PATTERN.search(value)
+            or AWS_SECRET_PATTERN.search(value)
+            or GITHUB_SECRET_PATTERN.search(value)
         )
     elif isinstance(value, dict):
         return any(has_secret_references(v) for v in value.values())
@@ -261,13 +280,15 @@ def list_secret_references(data: Union[str, Dict, list]) -> list:
 
     def scan_string(s: str):
         for match in AWS_SECRET_PATTERN.finditer(s):
-            refs.append(('AWS_SECRET', match.group(1)))
+            refs.append(("AWS_SECRET", match.group(1)))
         for match in GITHUB_SECRET_PATTERN.finditer(s):
-            refs.append(('GITHUB_SECRET', match.group(1)))
+            refs.append(("GITHUB_SECRET", match.group(1)))
         for match in ENV_VAR_PATTERN.finditer(s):
             var_name = match.group(1)
-            if 'AWS_SECRET:' not in match.group(0) and 'GITHUB_SECRET:' not in match.group(0):
-                refs.append(('ENV_VAR', var_name))
+            if "AWS_SECRET:" not in match.group(
+                0
+            ) and "GITHUB_SECRET:" not in match.group(0):
+                refs.append(("ENV_VAR", var_name))
 
     def scan_value(val):
         if isinstance(val, str):

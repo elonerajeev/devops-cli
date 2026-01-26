@@ -2,6 +2,7 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, HttpUrl, Field, validator
 import re
 
+
 class HealthCheckSchema(BaseModel):
     type: str
     url: Optional[HttpUrl] = None
@@ -10,45 +11,47 @@ class HealthCheckSchema(BaseModel):
     port: Optional[int] = None
     command: Optional[str] = None
 
-    @validator('url', pre=True)
+    @validator("url", pre=True)
     def convert_url_to_str(cls, v):
         if isinstance(v, HttpUrl):
             return str(v)
         return v
 
-    @validator('port')
+    @validator("port")
     def validate_port(cls, v, values):
         if v is not None and not (1 <= v <= 65535):
-            raise ValueError('port must be between 1 and 65535')
-        if values.get('type') == 'tcp' and v is None:
-            raise ValueError('port is required for tcp health check')
+            raise ValueError("port must be between 1 and 65535")
+        if values.get("type") == "tcp" and v is None:
+            raise ValueError("port is required for tcp health check")
         return v
 
-    @validator('host')
+    @validator("host")
     def validate_host_for_tcp(cls, v, values):
-        if values.get('type') == 'tcp' and v is None:
-            raise ValueError('host is required for tcp health check')
+        if values.get("type") == "tcp" and v is None:
+            raise ValueError("host is required for tcp health check")
         return v
 
-    @validator('command')
+    @validator("command")
     def validate_command_for_command_type(cls, v, values):
-        if values.get('type') == 'command' and v is None:
-            raise ValueError('command is required for command health check')
+        if values.get("type") == "command" and v is None:
+            raise ValueError("command is required for command health check")
         return v
 
 
 class LogConfigSchema(BaseModel):
-    type: str # cloudwatch
+    type: str  # cloudwatch
     log_group: Optional[str] = None
     region: Optional[str] = None
 
 
 class AppConfigSchema(BaseModel):
     name: str
-    type: str # lambda, kubernetes, docker, custom
+    type: str  # lambda, kubernetes, docker, custom
     description: Optional[str] = None
     added_at: str
-    lambda_config: Optional[Dict[str, Any]] = Field(None, alias="lambda") # Use alias for "lambda" keyword
+    lambda_config: Optional[Dict[str, Any]] = Field(
+        None, alias="lambda"
+    )  # Use alias for "lambda" keyword
     kubernetes: Optional[Dict[str, Any]] = None
     docker: Optional[Dict[str, Any]] = None
     logs: Optional[LogConfigSchema] = None
@@ -56,7 +59,7 @@ class AppConfigSchema(BaseModel):
     aws_role: Optional[str] = None
     teams: List[str] = ["default"]
 
-    @validator('name')
+    @validator("name")
     def validate_name(cls, v):
         if not re.match(r"^[a-zA-Z0-9_\-]+$", v):
             raise ValueError("name must be alphanumeric, dash, or underscore")
@@ -68,13 +71,13 @@ class WebsiteConfigSchema(BaseModel):
     url: HttpUrl
     expected_status: int = 200
     timeout: int = 10
-    method: str = "GET" # GET, POST, HEAD
+    method: str = "GET"  # GET, POST, HEAD
     headers: Dict[str, str] = Field(default_factory=dict)
     enabled: bool = True
     added_at: str
     teams: List[str] = ["default"]
 
-    @validator('url', pre=True)
+    @validator("url", pre=True)
     def convert_url_to_str(cls, v):
         if isinstance(v, HttpUrl):
             return str(v)

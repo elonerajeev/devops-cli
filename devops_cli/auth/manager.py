@@ -3,16 +3,15 @@
 This module provides the main interface for authentication and session management.
 It acts as a facade, coordinating the AuthService, Stores, and other components.
 """
+
 import functools
 import os
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Optional, Dict
 
 from devops_cli.auth.service import AuthService, SESSION_EXPIRY_HOURS
 from devops_cli.auth.stores import UserStore, SessionStore
 from devops_cli.auth.utils import _ensure_auth_dir, _load_json, _save_json, AUTH_DIR
-
 
 # Auth configuration
 AUDIT_LOG = AUTH_DIR / "audit.log"
@@ -46,12 +45,24 @@ class AuthManager:
         _ensure_auth_dir()
         self._user_store = UserStore()
         self._session_store = SessionStore()
-        current_user_email = self.get_current_session().get("email") if self.get_current_session() else "system"
-        self._auth_service = AuthService(self._user_store, self._session_store, current_user_email)
+        current_user_email = (
+            self.get_current_session().get("email")
+            if self.get_current_session()
+            else "system"
+        )
+        self._auth_service = AuthService(
+            self._user_store, self._session_store, current_user_email
+        )
 
     # ==================== User Management (Admin) ====================
 
-    def register_user(self, email: str, name: str = None, role: str = "developer", team: str = "default") -> str:
+    def register_user(
+        self,
+        email: str,
+        name: str = None,
+        role: str = "developer",
+        team: str = "default",
+    ) -> str:
         """Register a new user and return their token."""
         token = self._auth_service.register_user(email, name, role, team)
         _log_audit("USER_REGISTERED", email, f"role={role} team={team}")
@@ -182,7 +193,9 @@ class AuthManager:
         if not session:
             return False
 
-        session["expires_at"] = (datetime.now() + timedelta(hours=SESSION_EXPIRY_HOURS)).isoformat()
+        session["expires_at"] = (
+            datetime.now() + timedelta(hours=SESSION_EXPIRY_HOURS)
+        ).isoformat()
         self._session_store.add_session(token, session)
         return True
 
@@ -266,35 +279,43 @@ class AuthManager:
 
 # ==================== Decorators ====================
 
+
 def require_auth(func):
     """Decorator to require authentication for a command."""
+
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         auth = AuthManager()
         if not auth.is_authenticated():
             from devops_cli.utils.output import error, info
+
             error("Authentication required")
             info("Run: devops auth login")
             raise SystemExit(1)
         return func(*args, **kwargs)
+
     return wrapper
 
 
 def require_admin_auth(func):
     """Decorator to require admin authentication."""
+
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         auth = AuthManager()
         if not auth.is_authenticated():
             from devops_cli.utils.output import error, info
+
             error("Authentication required")
             info("Run: devops auth login")
             raise SystemExit(1)
         if not auth.is_admin():
             from devops_cli.utils.output import error
+
             error("Admin access required")
             raise SystemExit(1)
         return func(*args, **kwargs)
+
     return wrapper
 
 

@@ -20,13 +20,6 @@ aws_roles:
     external_id: ~  # Optional: use ~ for null/none
     description: Read-only access for production logs and monitoring
 
-  # Production Admin Role (restricted)
-  prod-admin:
-    role_arn: arn:aws:iam::123456789012:role/DevOpsAdmin
-    region: ap-south-1
-    external_id: ${AWS_SECRET:iam/external-ids/prod-admin}
-    description: Admin access for production (restricted)
-
   # Staging Environment Role
   staging:
     role_arn: arn:aws:iam::234567890123:role/DevOpsStagingAccess
@@ -48,13 +41,6 @@ aws_roles:
     external_id: logging-external-id-12345
     description: Cross-account access to centralized logging
 
-  # DR Environment Role
-  disaster-recovery:
-    role_arn: arn:aws:iam::567890123456:role/DRAccess
-    region: eu-west-1
-    external_id: ~
-    description: Disaster recovery environment access
-
 # Notes:
 # - role_arn: Full ARN of the IAM role to assume
 # - region: AWS region for this role's resources
@@ -65,6 +51,4 @@ aws_roles:
 #   - logs:DescribeLogGroups
 #   - logs:FilterLogEvents
 #   - logs:GetLogEvents
-#   - ec2:DescribeInstances (optional)
-#   - ecs:DescribeServices (for ECS apps)
 #   - lambda:GetFunction (for Lambda apps)

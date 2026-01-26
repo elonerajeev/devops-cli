@@ -9,21 +9,35 @@ from collections import defaultdict
 import json
 import time
 
-from fastapi import FastAPI, Request, HTTPException, Depends, status, File, UploadFile, Form
+from fastapi import (
+    FastAPI,
+    Request,
+    HTTPException,
+    Depends,
+    File,
+    UploadFile,
+    Form,
+)
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from pydantic import ValidationError
 from devops_cli.auth import AuthManager
+from devops_cli.utils.github_helper import (
+    get_dependabot_alerts,
+    get_secret_scanning_alerts,
+    get_code_scanning_alerts,
+)
+from devops_cli.utils.security_scanner import run_local_scan
 
 # Dashboard paths
 DASHBOARD_DIR = Path(__file__).parent
 STATIC_DIR = DASHBOARD_DIR / "static"
 TEMPLATES_DIR = DASHBOARD_DIR / "templates"
 CONFIG_DIR = Path.home() / ".devops-cli"
+
 
 # =============================================================================
 # SECURITY: CORS Configuration
@@ -53,7 +67,9 @@ def get_cors_origins() -> List[str]:
         f"http://127.0.0.1:{port}",
     ]
 
+
 ALLOWED_ORIGINS = get_cors_origins()
+
 
 # =============================================================================
 # SECURITY: Rate Limiting for Auth Endpoints
@@ -71,8 +87,7 @@ class RateLimiter:
         now = time.time()
         # Clean old attempts
         self._attempts[key] = [
-            t for t in self._attempts[key]
-            if now - t < self.window_seconds
+            t for t in self._attempts[key] if now - t < self.window_seconds
         ]
         return len(self._attempts[key]) >= self.max_attempts
 
@@ -90,6 +105,7 @@ class RateLimiter:
             return 0
         oldest = min(self._attempts[key])
         return max(0, int(self.window_seconds - (time.time() - oldest)))
+
 
 # Global rate limiter instance
 auth_rate_limiter = RateLimiter(max_attempts=5, window_seconds=300)
@@ -147,7 +163,7 @@ monitoring_cache = TTLCache(default_ttl=30)  # 30 second cache for monitoring
 app = FastAPI(
     title="DevOps CLI Dashboard",
     description="Web interface for DevOps CLI",
-    version="1.0.0"
+    version="1.0.0",
 )
 auth = AuthManager()
 
@@ -200,14 +216,27 @@ def require_admin(request: Request) -> dict:
 DEPLOYMENTS_FILE = CONFIG_DIR / "deployments.json"
 ACTIVITY_FILE = CONFIG_DIR / "activity.json"
 
+
 def load_teams_config():
     """Load teams configuration."""
     import yaml
+
     teams_file = CONFIG_DIR / "teams.yaml"
     if teams_file.exists():
         with open(teams_file) as f:
             return yaml.safe_load(f) or {}
-    return {"teams": {"default": {"name": "Default Team", "apps": ["*"], "servers": ["*"], "websites": ["*"], "repos": ["*"]}}}
+    return {
+        "teams": {
+            "default": {
+                "name": "Default Team",
+                "apps": ["*"],
+                "servers": ["*"],
+                "websites": ["*"],
+                "repos": ["*"],
+            }
+        }
+    }
+
 
 def get_user_team(email: str) -> str:
     """Get user's team using AuthManager."""
@@ -215,6 +244,7 @@ def get_user_team(email: str) -> str:
     if user_data:
         return user_data.get("team", "default")
     return "default"
+
 
 def set_user_team(email: str, team: str):
     """Set user's team."""
@@ -227,28 +257,44 @@ def set_user_team(email: str, team: str):
             with open(users_file, "w") as f:
                 json.dump(users, f, indent=2)
 
+
 def get_team_permissions(team_name: str) -> dict:
     """Get team's access permissions."""
     config = load_teams_config()
     teams = config.get("teams", {})
-    return teams.get(team_name, teams.get("default", {"apps": ["*"], "servers": ["*"], "websites": ["*"], "repos": ["*"]}))
+    return teams.get(
+        team_name,
+        teams.get(
+            "default",
+            {"apps": ["*"], "servers": ["*"], "websites": ["*"], "repos": ["*"]},
+        ),
+    )
+
 
 def can_access_resource(resource_name: str, allowed_patterns: list) -> bool:
     """Check if user can access a resource based on patterns."""
     import fnmatch
+
     for pattern in allowed_patterns:
         if pattern == "*" or fnmatch.fnmatch(resource_name, pattern):
             return True
     return False
 
-def filter_by_team_access(items: list, user_email: str, resource_type: str, name_key: str = "name") -> list:
+
+def filter_by_team_access(
+    items: list, user_email: str, resource_type: str, name_key: str = "name"
+) -> list:
     """Filter items based on team access."""
     team = get_user_team(user_email)
     permissions = get_team_permissions(team)
     allowed = permissions.get(resource_type, ["*"])
-    return [item for item in items if can_access_resource(item.get(name_key, ""), allowed)]
+    return [
+        item for item in items if can_access_resource(item.get(name_key, ""), allowed)
+    ]
+
 
 # ==================== Dynamic Data Storage ====================
+
 
 def load_deployments() -> list:
     """Load deployments from file."""
@@ -256,6 +302,7 @@ def load_deployments() -> list:
         with open(DEPLOYMENTS_FILE) as f:
             return json.load(f).get("deployments", [])
     return []
+
 
 def save_deployment(deployment: dict):
     """Save a new deployment."""
@@ -270,6 +317,7 @@ def save_deployment(deployment: dict):
         json.dump(data, f, indent=2)
     return deployment
 
+
 def load_activity() -> list:
     """Load activity logs from file."""
     activities = []
@@ -280,7 +328,7 @@ def load_activity() -> list:
             # Read all lines
             with open(audit_file, "r") as f:
                 lines = f.readlines()
-            
+
             # Truncate if more than 10 (as requested for performance)
             if len(lines) > 10:
                 lines = lines[-10:]
@@ -289,7 +337,7 @@ def load_activity() -> list:
                         f.writelines(lines)
                 except Exception:
                     pass
-            
+
             for line in lines:
                 try:
                     # Fix: audit.log is pipe-separated, not JSON
@@ -299,26 +347,44 @@ def load_activity() -> list:
                             timestamp = entry_parts[0]
                             action = entry_parts[1]
                             email = entry_parts[2] if len(entry_parts) > 2 else "system"
-                            
-                            activities.append({
-                                "timestamp": timestamp,
-                                "type": action.split("_")[0].lower() if "_" in action else "system",
-                                "user": email,
-                                "action": action.replace("_", " ").title(),
-                                "ip": "-",
-                                "status": "success"
-                            })
+
+                            activities.append(
+                                {
+                                    "timestamp": timestamp,
+                                    "type": (
+                                        action.split("_")[0].lower()
+                                        if "_" in action
+                                        else "system"
+                                    ),
+                                    "user": email,
+                                    "action": action.replace("_", " ").title(),
+                                    "ip": "-",
+                                    "status": "success",
+                                }
+                            )
                     else:
                         # Fallback for legacy JSON lines if any
                         entry = json.loads(line.strip())
-                        activities.append({
-                            "timestamp": entry.get("timestamp", ""),
-                            "type": entry.get("action", "").split("_")[0] if "_" in entry.get("action", "") else "system",
-                            "user": entry.get("email", entry.get("user", "system")),
-                            "action": entry.get("action", "").replace("_", " ").title(),
-                            "ip": entry.get("ip", "-"),
-                            "status": "success" if entry.get("success", True) else "failed"
-                        })
+                        activities.append(
+                            {
+                                "timestamp": entry.get("timestamp", ""),
+                                "type": (
+                                    entry.get("action", "").split("_")[0]
+                                    if "_" in entry.get("action", "")
+                                    else "system"
+                                ),
+                                "user": entry.get("email", entry.get("user", "system")),
+                                "action": entry.get("action", "")
+                                .replace("_", " ")
+                                .title(),
+                                "ip": entry.get("ip", "-"),
+                                "status": (
+                                    "success"
+                                    if entry.get("success", True)
+                                    else "failed"
+                                ),
+                            }
+                        )
                 except Exception:
                     pass
         except Exception:
@@ -328,12 +394,15 @@ def load_activity() -> list:
     if ACTIVITY_FILE.exists():
         with open(ACTIVITY_FILE) as f:
             activities.extend(json.load(f).get("activities", []))
-    
+
     # Sort by timestamp desc
     activities.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
-    return activities[:10] # Enforce overall limit
+    return activities[:10]  # Enforce overall limit
 
-def log_activity(activity_type: str, user: str, action: str, status: str = "success", ip: str = "-"):
+
+def log_activity(
+    activity_type: str, user: str, action: str, status: str = "success", ip: str = "-"
+):
     """Log an activity."""
     data = {"activities": []}
     if ACTIVITY_FILE.exists():
@@ -342,18 +411,18 @@ def log_activity(activity_type: str, user: str, action: str, status: str = "succ
                 data = json.load(f)
         except Exception:
             pass
-            
+
     activity = {
         "timestamp": datetime.now().isoformat() + "Z",
         "type": activity_type,
         "user": user,
         "action": action,
         "ip": ip,
-        "status": status
+        "status": status,
     }
     data["activities"].insert(0, activity)
     data["activities"] = data["activities"][:10]  # Keep last 10 as requested
-    
+
     ACTIVITY_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(ACTIVITY_FILE, "w") as f:
         json.dump(data, f, indent=2)
@@ -361,16 +430,14 @@ def log_activity(activity_type: str, user: str, action: str, status: str = "succ
 
 # ==================== Pages ====================
 
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """Main dashboard page."""
     user = get_current_user(request)
     if not user:
         return templates.TemplateResponse("login.html", {"request": request})
-    return templates.TemplateResponse("index.html", {
-        "request": request,
-        "user": user
-    })
+    return templates.TemplateResponse("index.html", {"request": request, "user": user})
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -380,6 +447,7 @@ async def login_page(request: Request):
 
 
 # ==================== Auth API ====================
+
 
 @app.post("/api/auth/login")
 async def api_login(request: Request):
@@ -392,7 +460,7 @@ async def api_login(request: Request):
         remaining = auth_rate_limiter.get_remaining_time(client_ip)
         raise HTTPException(
             status_code=429,
-            detail=f"Too many login attempts. Try again in {remaining} seconds."
+            detail=f"Too many login attempts. Try again in {remaining} seconds.",
         )
 
     data = await request.json()
@@ -407,7 +475,7 @@ async def api_login(request: Request):
         remaining = auth_rate_limiter.get_remaining_time(email)
         raise HTTPException(
             status_code=429,
-            detail=f"Too many login attempts for this account. Try again in {remaining} seconds."
+            detail=f"Too many login attempts for this account. Try again in {remaining} seconds.",
         )
 
     # Record the attempt
@@ -427,30 +495,32 @@ async def api_login(request: Request):
             if user_info:
                 # Create session
                 import secrets
+
                 session_id = secrets.token_urlsafe(32)
                 sessions[session_id] = {
                     "user": {
                         "email": email,
                         "name": user_info.get("name", email.split("@")[0]),
                         "role": user_info.get("role", "developer"),
-                        "team": get_user_team(email)
+                        "team": get_user_team(email),
                     },
-                    "expires_at": (datetime.now() + timedelta(hours=8)).isoformat()
+                    "expires_at": (datetime.now() + timedelta(hours=8)).isoformat(),
                 }
 
                 # Log successful login
-                log_activity("login", email, "User logged in via dashboard", "success", client_ip)
+                log_activity(
+                    "login", email, "User logged in via dashboard", "success", client_ip
+                )
 
-                response = JSONResponse({
-                    "success": True,
-                    "user": sessions[session_id]["user"]
-                })
+                response = JSONResponse(
+                    {"success": True, "user": sessions[session_id]["user"]}
+                )
                 response.set_cookie(
                     key="session_id",
                     value=session_id,
                     httponly=True,
                     max_age=8 * 3600,
-                    samesite="lax"
+                    samesite="lax",
                 )
                 return response
     except HTTPException:
@@ -483,6 +553,7 @@ async def api_me(user: dict = Depends(require_auth)):
 
 # ==================== Apps API ====================
 
+
 @app.get("/api/apps")
 async def api_apps(user: dict = Depends(require_auth)):
     """Get all applications (filtered by team access)."""
@@ -494,13 +565,15 @@ async def api_apps(user: dict = Depends(require_auth)):
 
         result = []
         for name, app in apps.items():
-            result.append({
-                "name": name,
-                "type": app.get("type", "unknown"),
-                "description": app.get("description", ""),
-                "health": app.get("health", {}),
-                "logs": app.get("logs", {})
-            })
+            result.append(
+                {
+                    "name": name,
+                    "type": app.get("type", "unknown"),
+                    "description": app.get("description", ""),
+                    "health": app.get("health", {}),
+                    "logs": app.get("logs", {}),
+                }
+            )
 
         # Filter by team access (admin sees all)
         if user.get("role") != "admin":
@@ -549,7 +622,7 @@ async def api_app_health(app_name: str, user: dict = Depends(require_auth)):
                     "status": "healthy",
                     "response_time": round(elapsed, 2),
                     "status_code": response.status_code,
-                    "url": url
+                    "url": url,
                 }
             else:
                 return {
@@ -557,13 +630,14 @@ async def api_app_health(app_name: str, user: dict = Depends(require_auth)):
                     "response_time": round(elapsed, 2),
                     "status_code": response.status_code,
                     "expected": expected_status,
-                    "url": url
+                    "url": url,
                 }
     except Exception as e:
         return {"status": "unhealthy", "error": str(e), "url": url}
 
 
 # ==================== Servers API ====================
+
 
 @app.get("/api/servers")
 async def api_servers(user: dict = Depends(require_auth)):
@@ -576,13 +650,15 @@ async def api_servers(user: dict = Depends(require_auth)):
 
         result = []
         for name, server in servers.items():
-            result.append({
-                "name": name,
-                "host": server.get("host", ""),
-                "user": server.get("user", ""),
-                "port": server.get("port", 22),
-                "tags": server.get("tags", [])
-            })
+            result.append(
+                {
+                    "name": name,
+                    "host": server.get("host", ""),
+                    "user": server.get("user", ""),
+                    "port": server.get("port", 22),
+                    "tags": server.get("tags", []),
+                }
+            )
 
         # Filter by team access (admin sees all)
         if user.get("role") != "admin":
@@ -593,7 +669,51 @@ async def api_servers(user: dict = Depends(require_auth)):
         return {"servers": [], "error": str(e)}
 
 
+@app.post("/api/servers/{server_name}/exec")
+async def api_server_exec(
+    server_name: str, request: Request, user: dict = Depends(require_auth)
+):
+    """Execute a command on a server via SSH."""
+    from devops_cli.commands.ssh import get_server_config, run_remote_command
+
+    data = await request.json()
+    command = data.get("command")
+
+    if not command:
+        raise HTTPException(status_code=400, detail="Command required")
+
+    # Check team access
+    if user.get("role") != "admin":
+        team = get_user_team(user["email"])
+        permissions = get_team_permissions(team)
+        # Check if user has access to this specific server
+        from devops_cli.dashboard.app import can_access_resource
+
+        if not can_access_resource(server_name, permissions.get("servers", [])):
+            raise HTTPException(status_code=403, detail="No access to this server")
+
+    config = get_server_config(server_name)
+    if not config:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    # Run command in thread to avoid blocking
+    result = await asyncio.to_thread(
+        run_remote_command, server_name, config, command
+    )
+
+    # Log to system activity
+    log_activity(
+        "server",
+        user["email"],
+        f"Executed '{command[:30]}...' on {server_name}",
+        "success" if result["success"] else "failed",
+    )
+
+    return result
+
+
 # ==================== Websites API ====================
+
 
 @app.get("/api/websites")
 async def api_websites(user: dict = Depends(require_auth)):
@@ -607,15 +727,17 @@ async def api_websites(user: dict = Depends(require_auth)):
         result = []
         for name, website in websites.items():
             if isinstance(website, dict):
-                result.append({
-                    "name": website.get("name", name),
-                    "url": website.get("url", ""),
-                    "description": website.get("description", ""),
-                    "expected_status": website.get("expected_status", 200),
-                    "method": website.get("method", "GET"),
-                    "timeout": website.get("timeout", 10),
-                    "tags": website.get("tags", []),
-                })
+                result.append(
+                    {
+                        "name": website.get("name", name),
+                        "url": website.get("url", ""),
+                        "description": website.get("description", ""),
+                        "expected_status": website.get("expected_status", 200),
+                        "method": website.get("method", "GET"),
+                        "timeout": website.get("timeout", 10),
+                        "tags": website.get("tags", []),
+                    }
+                )
 
         # Filter by team access (admin sees all)
         if user.get("role") != "admin":
@@ -627,6 +749,7 @@ async def api_websites(user: dict = Depends(require_auth)):
 
 
 # ==================== Monitoring API ====================
+
 
 @app.get("/api/monitoring")
 async def api_monitoring(user: dict = Depends(require_auth)):
@@ -660,42 +783,53 @@ async def api_monitoring(user: dict = Depends(require_auth)):
             )
             servers_from_config = [ServerConfig(**s) for s in servers_from_config]
 
-
         # Run health checks
-        results = await checker.check_all(websites_from_config, apps_from_config, servers_from_config)
+        results = await checker.check_all(
+            websites_from_config, apps_from_config, servers_from_config
+        )
 
         # Convert HealthResult objects to dictionaries
         def result_to_dict(r):
             return {
                 "name": r.name,
-                "status": "online" if r.status == HealthStatus.HEALTHY else "offline" if r.status == HealthStatus.UNHEALTHY else "degraded",
+                "status": (
+                    "online"
+                    if r.status == HealthStatus.HEALTHY
+                    else "offline" if r.status == HealthStatus.UNHEALTHY else "degraded"
+                ),
                 "response_time": r.response_time_ms,
                 "message": r.message,
                 "details": r.details,
-                "url": r.details.get("url", "")
+                "url": r.details.get("url", ""),
             }
 
         websites_data = [result_to_dict(w) for w in results.get("websites", [])]
         apps_data = [result_to_dict(a) for a in results.get("apps", [])]
         servers_data = [result_to_dict(s) for s in results.get("servers", [])]
 
-        online_count = sum(1 for w in websites_data if w["status"] == "online") + \
-                       sum(1 for a in apps_data if a["status"] == "online") + \
-                       sum(1 for s in servers_data if s["status"] == "online")
+        online_count = (
+            sum(1 for w in websites_data if w["status"] == "online")
+            + sum(1 for a in apps_data if a["status"] == "online")
+            + sum(1 for s in servers_data if s["status"] == "online")
+        )
 
-        offline_count = sum(1 for w in websites_data if w["status"] == "offline") + \
-                        sum(1 for a in apps_data if a["status"] == "offline") + \
-                        sum(1 for s in servers_data if s["status"] == "offline")
+        offline_count = (
+            sum(1 for w in websites_data if w["status"] == "offline")
+            + sum(1 for a in apps_data if a["status"] == "offline")
+            + sum(1 for s in servers_data if s["status"] == "offline")
+        )
 
         return {
             "websites": websites_data,
             "apps": apps_data,
             "servers": servers_data,
             "summary": {
-                "total": len(websites_from_config) + len(apps_from_config) + len(servers_from_config),
+                "total": len(websites_from_config)
+                + len(apps_from_config)
+                + len(servers_from_config),
                 "online": online_count,
-                "offline": offline_count
-            }
+                "offline": offline_count,
+            },
         }
     except Exception as e:
         return {"websites": [], "apps": [], "servers": [], "error": str(e)}
@@ -727,12 +861,20 @@ async def api_monitoring_stream(request: Request, user: dict = Depends(require_a
 
                 # Filter resources by team access (admin sees all)
                 if user_role != "admin":
-                    from devops_cli.monitoring.config import WebsiteConfig, AppConfig, ServerConfig
+                    from devops_cli.monitoring.config import (
+                        WebsiteConfig,
+                        AppConfig,
+                        ServerConfig,
+                    )
 
                     websites_from_config = filter_by_team_access(
-                        [w.as_dict() for w in websites_from_config], user_email, "websites"
+                        [w.as_dict() for w in websites_from_config],
+                        user_email,
+                        "websites",
                     )
-                    websites_from_config = [WebsiteConfig(**w) for w in websites_from_config]
+                    websites_from_config = [
+                        WebsiteConfig(**w) for w in websites_from_config
+                    ]
 
                     apps_from_config = filter_by_team_access(
                         [a.as_dict() for a in apps_from_config], user_email, "apps"
@@ -740,28 +882,48 @@ async def api_monitoring_stream(request: Request, user: dict = Depends(require_a
                     apps_from_config = [AppConfig(**a) for a in apps_from_config]
 
                     servers_from_config = filter_by_team_access(
-                        [s.as_dict() for s in servers_from_config], user_email, "servers"
+                        [s.as_dict() for s in servers_from_config],
+                        user_email,
+                        "servers",
                     )
-                    servers_from_config = [ServerConfig(**s) for s in servers_from_config]
+                    servers_from_config = [
+                        ServerConfig(**s) for s in servers_from_config
+                    ]
 
-                results = await checker.check_all(websites_from_config, apps_from_config, servers_from_config)
+                results = await checker.check_all(
+                    websites_from_config, apps_from_config, servers_from_config
+                )
 
                 # Convert HealthResult objects to dictionaries
                 def result_to_dict(r):
                     return {
                         "name": r.name,
-                        "status": "online" if r.status == HealthStatus.HEALTHY else "offline" if r.status == HealthStatus.UNHEALTHY else "degraded",
+                        "status": (
+                            "online"
+                            if r.status == HealthStatus.HEALTHY
+                            else (
+                                "offline"
+                                if r.status == HealthStatus.UNHEALTHY
+                                else "degraded"
+                            )
+                        ),
                         "response_time": r.response_time_ms,
                         "message": r.message,
-                        "url": r.details.get("url", "")
+                        "url": r.details.get("url", ""),
                     }
 
-                data = json.dumps({
-                    "timestamp": datetime.now().isoformat(),
-                    "websites": [result_to_dict(w) for w in results.get("websites", [])],
-                    "apps": [result_to_dict(a) for a in results.get("apps", [])],
-                    "servers": [result_to_dict(s) for s in results.get("servers", [])]
-                })
+                data = json.dumps(
+                    {
+                        "timestamp": datetime.now().isoformat(),
+                        "websites": [
+                            result_to_dict(w) for w in results.get("websites", [])
+                        ],
+                        "apps": [result_to_dict(a) for a in results.get("apps", [])],
+                        "servers": [
+                            result_to_dict(s) for s in results.get("servers", [])
+                        ],
+                    }
+                )
 
                 yield f"data: {data}\n\n"
             except Exception as e:
@@ -772,14 +934,12 @@ async def api_monitoring_stream(request: Request, user: dict = Depends(require_a
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive"
-        }
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
     )
 
 
 # ==================== Users API (Admin Only) ====================
+
 
 @app.get("/api/users")
 async def api_users(user: dict = Depends(require_admin)):
@@ -819,7 +979,9 @@ async def api_create_user(request: Request, user: dict = Depends(require_admin))
 
 
 @app.put("/api/users/{email}/team")
-async def api_set_user_team(email: str, request: Request, user: dict = Depends(require_admin)):
+async def api_set_user_team(
+    email: str, request: Request, user: dict = Depends(require_admin)
+):
     """Set user's team (admin only)."""
     data = await request.json()
     team = data.get("team", "default")
@@ -863,63 +1025,84 @@ def save_documents_metadata(metadata: dict):
 
 # ==================== CloudWatch Log Fetching ====================
 
+
 async def fetch_cloudwatch_logs(log_group: str, region: str, lines: int = 100) -> dict:
     """Fetch logs from AWS CloudWatch."""
     try:
         import boto3
         from botocore.exceptions import ClientError, NoCredentialsError
 
-        client = boto3.client('logs', region_name=region)
+        client = boto3.client("logs", region_name=region)
 
         # Get log streams
         streams_response = client.describe_log_streams(
-            logGroupName=log_group,
-            orderBy='LastEventTime',
-            descending=True,
-            limit=5
+            logGroupName=log_group, orderBy="LastEventTime", descending=True, limit=5
         )
 
         logs = []
-        for stream in streams_response.get('logStreams', []):
+        for stream in streams_response.get("logStreams", []):
             events_response = client.get_log_events(
                 logGroupName=log_group,
-                logStreamName=stream['logStreamName'],
-                limit=lines // len(streams_response.get('logStreams', [1])),
-                startFromHead=False
+                logStreamName=stream["logStreamName"],
+                limit=lines // len(streams_response.get("logStreams", [1])),
+                startFromHead=False,
             )
 
-            for event in events_response.get('events', []):
-                message = event.get('message', '')
-                level = 'INFO'
-                if 'ERROR' in message.upper():
-                    level = 'ERROR'
-                elif 'WARN' in message.upper():
-                    level = 'WARN'
-                elif 'DEBUG' in message.upper():
-                    level = 'DEBUG'
+            for event in events_response.get("events", []):
+                message = event.get("message", "")
+                level = "INFO"
+                if "ERROR" in message.upper():
+                    level = "ERROR"
+                elif "WARN" in message.upper():
+                    level = "WARN"
+                elif "DEBUG" in message.upper():
+                    level = "DEBUG"
 
-                logs.append({
-                    "timestamp": datetime.fromtimestamp(event['timestamp'] / 1000).isoformat(),
-                    "level": level,
-                    "message": message,
-                    "source": stream['logStreamName']
-                })
+                logs.append(
+                    {
+                        "timestamp": datetime.fromtimestamp(
+                            event["timestamp"] / 1000
+                        ).isoformat(),
+                        "level": level,
+                        "message": message,
+                        "source": stream["logStreamName"],
+                    }
+                )
 
-        logs.sort(key=lambda x: x['timestamp'], reverse=True)
+        logs.sort(key=lambda x: x["timestamp"], reverse=True)
         return {"success": True, "logs": logs[:lines], "source": "cloudwatch"}
 
     except NoCredentialsError:
-        return {"success": False, "error": "AWS credentials not configured", "hint": "Run 'devops admin aws configure' to set up AWS access"}
+        return {
+            "success": False,
+            "error": "AWS credentials not configured",
+            "hint": "Run 'devops admin aws configure' to set up AWS access",
+        }
     except ClientError as e:
-        error_code = e.response.get('Error', {}).get('Code', 'Unknown')
-        if error_code == 'ResourceNotFoundException':
-            return {"success": False, "error": f"Log group '{log_group}' not found", "hint": "Check if the log group exists in CloudWatch"}
-        return {"success": False, "error": str(e), "hint": "Check AWS permissions and log group configuration"}
+        error_code = e.response.get("Error", {}).get("Code", "Unknown")
+        if error_code == "ResourceNotFoundException":
+            return {
+                "success": False,
+                "error": f"Log group '{log_group}' not found",
+                "hint": "Check if the log group exists in CloudWatch",
+            }
+        return {
+            "success": False,
+            "error": str(e),
+            "hint": "Check AWS permissions and log group configuration",
+        }
     except ImportError:
-        return {"success": False, "error": "boto3 not installed", "hint": "Run 'pip install boto3' to enable AWS integration"}
+        return {
+            "success": False,
+            "error": "boto3 not installed",
+            "hint": "Run 'pip install boto3' to enable AWS integration",
+        }
     except Exception as e:
-        return {"success": False, "error": str(e), "hint": "Check your AWS configuration and network connectivity"}
-
+        return {
+            "success": False,
+            "error": str(e),
+            "hint": "Check your AWS configuration and network connectivity",
+        }
 
 
 def get_document_logs(app_name: str) -> dict:
@@ -935,11 +1118,12 @@ def get_document_logs(app_name: str) -> dict:
         return {"success": False, "error": "Document file not found"}
 
     try:
-        if doc_path.suffix.lower() == '.pdf':
+        if doc_path.suffix.lower() == ".pdf":
             # Try to extract text from PDF
             try:
                 import PyPDF2
-                with open(doc_path, 'rb') as f:
+
+                with open(doc_path, "rb") as f:
                     reader = PyPDF2.PdfReader(f)
                     text = ""
                     for page in reader.pages:
@@ -947,49 +1131,60 @@ def get_document_logs(app_name: str) -> dict:
             except ImportError:
                 return {
                     "success": True,
-                    "logs": [{
-                        "timestamp": datetime.now().isoformat(),
-                        "level": "INFO",
-                        "message": f"📄 PDF document available: {doc_info.get('original_name', 'document.pdf')}",
-                        "source": "document"
-                    }, {
-                        "timestamp": datetime.now().isoformat(),
-                        "level": "INFO",
-                        "message": f"Uploaded by: {doc_info.get('uploaded_by', 'admin')} on {doc_info.get('uploaded_at', 'unknown')}",
-                        "source": "document"
-                    }, {
-                        "timestamp": datetime.now().isoformat(),
-                        "level": "INFO",
-                        "message": "💡 Install PyPDF2 to view PDF contents inline: pip install PyPDF2",
-                        "source": "document"
-                    }],
+                    "logs": [
+                        {
+                            "timestamp": datetime.now().isoformat(),
+                            "level": "INFO",
+                            "message": f"📄 PDF document available: {doc_info.get('original_name', 'document.pdf')}",
+                            "source": "document",
+                        },
+                        {
+                            "timestamp": datetime.now().isoformat(),
+                            "level": "INFO",
+                            "message": f"Uploaded by: {doc_info.get('uploaded_by', 'admin')} on {doc_info.get('uploaded_at', 'unknown')}",
+                            "source": "document",
+                        },
+                        {
+                            "timestamp": datetime.now().isoformat(),
+                            "level": "INFO",
+                            "message": "💡 Install PyPDF2 to view PDF contents inline: pip install PyPDF2",
+                            "source": "document",
+                        },
+                    ],
                     "source": "document",
-                    "document_info": doc_info
+                    "document_info": doc_info,
                 }
         else:
             # Text file
-            with open(doc_path, 'r', errors='ignore') as f:
+            with open(doc_path, "r", errors="ignore") as f:
                 text = f.read()
 
         # Parse text into log entries
         logs = []
-        for line in text.split('\n')[:100]:
+        for line in text.split("\n")[:100]:
             if line.strip():
-                level = 'INFO'
-                if 'error' in line.lower():
-                    level = 'ERROR'
-                elif 'warn' in line.lower():
-                    level = 'WARN'
-                elif 'debug' in line.lower():
-                    level = 'DEBUG'
-                logs.append({
-                    "timestamp": datetime.now().isoformat(),
-                    "level": level,
-                    "message": line,
-                    "source": "document"
-                })
+                level = "INFO"
+                if "error" in line.lower():
+                    level = "ERROR"
+                elif "warn" in line.lower():
+                    level = "WARN"
+                elif "debug" in line.lower():
+                    level = "DEBUG"
+                logs.append(
+                    {
+                        "timestamp": datetime.now().isoformat(),
+                        "level": level,
+                        "message": line,
+                        "source": "document",
+                    }
+                )
 
-        return {"success": True, "logs": logs, "source": "document", "document_info": doc_info}
+        return {
+            "success": True,
+            "logs": logs,
+            "source": "document",
+            "document_info": doc_info,
+        }
 
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -997,13 +1192,14 @@ def get_document_logs(app_name: str) -> dict:
 
 # ==================== Logs API ====================
 
+
 @app.get("/api/apps/{app_name}/logs")
 async def api_app_logs(
     app_name: str,
     lines: int = 100,
     level: str = "all",
     source_preference: str = "auto",  # auto, live, document
-    user: dict = Depends(require_auth)
+    user: dict = Depends(require_auth),
 ):
     """Get application logs with priority: live source (CloudWatch) > document > friendly message."""
     from devops_cli.commands.admin import load_apps_config
@@ -1016,15 +1212,15 @@ async def api_app_logs(
 
     app_config = apps[app_name]
     logs_config = app_config.get("logs", {})
-    
+
     # Backwards compatibility for flat config structure
     if not logs_config and app_config.get("log_group"):
         logs_config = {
             "type": "cloudwatch",
             "log_group": app_config.get("log_group"),
-            "region": app_config.get("region", "us-east-1")
+            "region": app_config.get("region", "us-east-1"),
         }
-        
+
     log_type = logs_config.get("type", "none")
 
     result = {
@@ -1036,7 +1232,7 @@ async def api_app_logs(
         "document_available": False,
         "live_source_available": bool(logs_config and log_type == "cloudwatch"),
         "message": None,
-        "hint": None
+        "hint": None,
     }
 
     # Check if document is available
@@ -1062,7 +1258,11 @@ async def api_app_logs(
                 result["hint"] = fetch_result.get("hint")
 
     # Try document if live source failed or user prefers document
-    if not logs_fetched and (source_preference in ["auto", "document"]) and result["document_available"]:
+    if (
+        not logs_fetched
+        and (source_preference in ["auto", "document"])
+        and result["document_available"]
+    ):
         doc_result = get_document_logs(app_name)
         if doc_result.get("success"):
             result["logs"] = doc_result["logs"]
@@ -1074,50 +1274,63 @@ async def api_app_logs(
     if not logs_fetched:
         if log_type == "cloudwatch" and result.get("live_error"):
             # Logs are configured but failed to fetch
-            result["logs"] = [{
-                "timestamp": datetime.now().isoformat(),
-                "level": "ERROR",
-                "message": f"❌ Failed to fetch logs from CloudWatch",
-                "source": "system"
-            }, {
-                "timestamp": datetime.now().isoformat(),
-                "level": "ERROR",
-                "message": f"Error: {result['live_error']}",
-                "source": "system"
-            }]
-            if result.get("hint"):
-                result["logs"].append({
+            result["logs"] = [
+                {
                     "timestamp": datetime.now().isoformat(),
-                    "level": "WARN",
-                    "message": f"💡 Hint: {result['hint']}",
-                    "source": "system"
-                })
+                    "level": "ERROR",
+                    "message": "❌ Failed to fetch logs from CloudWatch",
+                    "source": "system",
+                },
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "level": "ERROR",
+                    "message": f"Error: {result['live_error']}",
+                    "source": "system",
+                },
+            ]
+            if result.get("hint"):
+                result["logs"].append(
+                    {
+                        "timestamp": datetime.now().isoformat(),
+                        "level": "WARN",
+                        "message": f"💡 Hint: {result['hint']}",
+                        "source": "system",
+                    }
+                )
         else:
             # No logs configured or unsupported type
-            result["logs"] = [{
-                "timestamp": datetime.now().isoformat(),
-                "level": "INFO",
-                "message": f"👋 Welcome! Logs for '{app_name}' are not yet configured.",
-                "source": "system"
-            }, {
-                "timestamp": datetime.now().isoformat(),
-                "level": "INFO",
-                "message": "💡 Ask your admin to configure CloudWatch log groups or upload log documentation.",
-                "source": "system"
-            }, {
-                "timestamp": datetime.now().isoformat(),
-                "level": "INFO",
-                "message": f"📋 Supported sources: CloudWatch, Uploaded Documents",
-                "source": "system"
-            }]
-        
+            result["logs"] = [
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "level": "INFO",
+                    "message": f"👋 Welcome! Logs for '{app_name}' are not yet configured.",
+                    "source": "system",
+                },
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "level": "INFO",
+                    "message": "💡 Ask your admin to configure CloudWatch log groups or upload log documentation.",
+                    "source": "system",
+                },
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "level": "INFO",
+                    "message": "📋 Supported sources: CloudWatch, Uploaded Documents",
+                    "source": "system",
+                },
+            ]
+
         result["source_used"] = "none"
         if not result.get("message"):
             result["message"] = "No logs available"
 
     # Filter by level
     if level != "all":
-        result["logs"] = [l for l in result["logs"] if l["level"].lower() == level.lower()]
+        result["logs"] = [
+            log_entry
+            for log_entry in result["logs"]
+            if log_entry["level"].lower() == level.lower()
+        ]
 
     result["total"] = len(result["logs"])
     return result
@@ -1141,7 +1354,9 @@ async def api_app_logs_stream(app_name: str, request: Request):
     logs_config = app_config.get("logs", {})
     log_type = logs_config.get("type", "none")
     log_group = app_config.get("log_group") or logs_config.get("log_group")
-    region = app_config.get("region", "us-east-1") or logs_config.get("region", "us-east-1")
+    region = app_config.get("region", "us-east-1") or logs_config.get(
+        "region", "us-east-1"
+    )
 
     async def log_generator():
         # Send initial status message
@@ -1149,7 +1364,7 @@ async def api_app_logs_stream(app_name: str, request: Request):
             "timestamp": datetime.now().isoformat(),
             "level": "INFO",
             "message": f"[{app_name}] Connecting to log source...",
-            "source": "system"
+            "source": "system",
         }
         yield f"data: {json.dumps(status_entry)}\n\n"
 
@@ -1159,7 +1374,7 @@ async def api_app_logs_stream(app_name: str, request: Request):
                 import boto3
                 from botocore.exceptions import ClientError, NoCredentialsError
 
-                client = boto3.client('logs', region_name=region)
+                client = boto3.client("logs", region_name=region)
 
                 while True:
                     if await request.is_disconnected():
@@ -1169,36 +1384,38 @@ async def api_app_logs_stream(app_name: str, request: Request):
                         # Get log streams
                         streams_response = client.describe_log_streams(
                             logGroupName=log_group,
-                            orderBy='LastEventTime',
+                            orderBy="LastEventTime",
                             descending=True,
-                            limit=3
+                            limit=3,
                         )
 
-                        for stream in streams_response.get('logStreams', []):
+                        for stream in streams_response.get("logStreams", []):
                             params = {
-                                'logGroupName': log_group,
-                                'logStreamName': stream['logStreamName'],
-                                'limit': 10,
-                                'startFromHead': False
+                                "logGroupName": log_group,
+                                "logStreamName": stream["logStreamName"],
+                                "limit": 10,
+                                "startFromHead": False,
                             }
 
                             events_response = client.get_log_events(**params)
 
-                            for event in events_response.get('events', []):
-                                message = event.get('message', '')
-                                level = 'INFO'
-                                if 'ERROR' in message.upper():
-                                    level = 'ERROR'
-                                elif 'WARN' in message.upper():
-                                    level = 'WARN'
-                                elif 'DEBUG' in message.upper():
-                                    level = 'DEBUG'
+                            for event in events_response.get("events", []):
+                                message = event.get("message", "")
+                                level = "INFO"
+                                if "ERROR" in message.upper():
+                                    level = "ERROR"
+                                elif "WARN" in message.upper():
+                                    level = "WARN"
+                                elif "DEBUG" in message.upper():
+                                    level = "DEBUG"
 
                                 log_entry = {
-                                    "timestamp": datetime.fromtimestamp(event['timestamp'] / 1000).isoformat(),
+                                    "timestamp": datetime.fromtimestamp(
+                                        event["timestamp"] / 1000
+                                    ).isoformat(),
                                     "level": level,
                                     "message": f"[{app_name}] {message}",
-                                    "source": stream['logStreamName']
+                                    "source": stream["logStreamName"],
                                 }
                                 yield f"data: {json.dumps(log_entry)}\n\n"
 
@@ -1209,7 +1426,7 @@ async def api_app_logs_stream(app_name: str, request: Request):
                             "timestamp": datetime.now().isoformat(),
                             "level": "ERROR",
                             "message": f"[{app_name}] CloudWatch error: {e.response.get('Error', {}).get('Message', str(e))}",
-                            "source": "system"
+                            "source": "system",
                         }
                         yield f"data: {json.dumps(error_entry)}\n\n"
                         await asyncio.sleep(10)
@@ -1219,7 +1436,7 @@ async def api_app_logs_stream(app_name: str, request: Request):
                     "timestamp": datetime.now().isoformat(),
                     "level": "ERROR",
                     "message": f"[{app_name}] AWS credentials not configured. Run 'devops admin aws configure' to set up access.",
-                    "source": "system"
+                    "source": "system",
                 }
                 yield f"data: {json.dumps(error_entry)}\n\n"
 
@@ -1228,7 +1445,7 @@ async def api_app_logs_stream(app_name: str, request: Request):
                     "timestamp": datetime.now().isoformat(),
                     "level": "ERROR",
                     "message": f"[{app_name}] boto3 not installed. Run 'pip install boto3' for AWS log streaming.",
-                    "source": "system"
+                    "source": "system",
                 }
                 yield f"data: {json.dumps(error_entry)}\n\n"
 
@@ -1238,7 +1455,7 @@ async def api_app_logs_stream(app_name: str, request: Request):
                 "timestamp": datetime.now().isoformat(),
                 "level": "INFO",
                 "message": f"[{app_name}] No real-time log source configured.",
-                "source": "system"
+                "source": "system",
             }
             yield f"data: {json.dumps(no_logs_entry)}\n\n"
 
@@ -1246,7 +1463,7 @@ async def api_app_logs_stream(app_name: str, request: Request):
                 "timestamp": datetime.now().isoformat(),
                 "level": "INFO",
                 "message": f"[{app_name}] Admin: Configure CloudWatch log group for streaming.",
-                "source": "system"
+                "source": "system",
             }
             yield f"data: {json.dumps(hint_entry)}\n\n"
 
@@ -1254,7 +1471,7 @@ async def api_app_logs_stream(app_name: str, request: Request):
                 "timestamp": datetime.now().isoformat(),
                 "level": "INFO",
                 "message": f"[{app_name}] Supported: CloudWatch (ECS/Lambda/EC2)",
-                "source": "system"
+                "source": "system",
             }
             yield f"data: {json.dumps(supported_entry)}\n\n"
 
@@ -1267,7 +1484,7 @@ async def api_app_logs_stream(app_name: str, request: Request):
                     "timestamp": datetime.now().isoformat(),
                     "level": "INFO",
                     "message": f"[{app_name}] Waiting for log source configuration...",
-                    "source": "system"
+                    "source": "system",
                 }
                 yield f"data: {json.dumps(status_entry)}\n\n"
                 await asyncio.sleep(30)
@@ -1275,7 +1492,7 @@ async def api_app_logs_stream(app_name: str, request: Request):
     return StreamingResponse(
         log_generator(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
     )
 
 
@@ -1284,7 +1501,7 @@ async def api_server_logs(
     server_name: str,
     log_type: str = "system",
     lines: int = 50,
-    user: dict = Depends(require_auth)
+    user: dict = Depends(require_auth),
 ):
     """Get server logs (primarily from documents)."""
     from devops_cli.commands.admin import load_servers_config
@@ -1308,13 +1525,15 @@ async def api_server_logs(
     doc_available = doc_key in metadata.get("documents", {})
 
     if doc_available:
-        doc_result = get_document_logs(doc_key) 
+        doc_result = get_document_logs(doc_key)
         if doc_result.get("success"):
             logs = doc_result["logs"]
             message = "Showing logs from uploaded document."
     else:
         message = f"No log documents uploaded for server '{server_name}'."
-        hint = "Admin: Upload log documentation for this server in the Documents section."
+        hint = (
+            "Admin: Upload log documentation for this server in the Documents section."
+        )
 
     return {
         "server": server_name,
@@ -1323,17 +1542,16 @@ async def api_server_logs(
         "logs": logs[:lines],
         "message": message,
         "hint": hint,
-        "document_available": doc_available
+        "document_available": doc_available,
     }
 
 
 # ==================== Activity/Audit Logs API ====================
 
+
 @app.get("/api/activity")
 async def api_activity(
-    limit: int = 50,
-    activity_type: str = "all",
-    user: dict = Depends(require_auth)
+    limit: int = 50, activity_type: str = "all", user: dict = Depends(require_auth)
 ):
     """Get activity/audit logs (dynamic from files)."""
     # Load from audit.log and activity.json
@@ -1346,13 +1564,14 @@ async def api_activity(
     return {
         "activities": activities[:limit],
         "total": len(activities),
-        "types": ["all", "login", "deploy", "config", "user", "alert"]
+        "types": ["all", "login", "deploy", "config", "user", "alert"],
     }
 
 
 @app.get("/api/activity/stream")
 async def api_activity_stream(request: Request, user: dict = Depends(require_auth)):
     """Live activity stream via SSE."""
+
     async def event_generator():
         last_count = 0
         while True:
@@ -1360,7 +1579,11 @@ async def api_activity_stream(request: Request, user: dict = Depends(require_aut
                 break
             activities = load_activity()
             if len(activities) > last_count:
-                new_activities = activities[:len(activities) - last_count] if last_count > 0 else activities[:5]
+                new_activities = (
+                    activities[: len(activities) - last_count]
+                    if last_count > 0
+                    else activities[:5]
+                )
                 last_count = len(activities)
                 yield f"data: {json.dumps({'activities': new_activities})}\n\n"
             await asyncio.sleep(2)
@@ -1370,12 +1593,13 @@ async def api_activity_stream(request: Request, user: dict = Depends(require_aut
 
 # ==================== Deployments API ====================
 
+
 @app.get("/api/deployments")
 async def api_deployments(
     app_name: str = None,
     status: str = "all",
     limit: int = 20,
-    user: dict = Depends(require_auth)
+    user: dict = Depends(require_auth),
 ):
     """Get deployment history (dynamic from file, team-filtered)."""
     from devops_cli.commands.admin import load_apps_config
@@ -1389,7 +1613,12 @@ async def api_deployments(
     # Filter by team access (admin sees all)
     if user.get("role") != "admin":
         deployments = filter_by_team_access(deployments, user["email"], "apps", "app")
-        all_apps = [a["name"] for a in filter_by_team_access([{"name": a} for a in all_apps], user["email"], "apps")]
+        all_apps = [
+            a["name"]
+            for a in filter_by_team_access(
+                [{"name": a} for a in all_apps], user["email"], "apps"
+            )
+        ]
 
     # Filter by app
     if app_name:
@@ -1403,15 +1632,13 @@ async def api_deployments(
         "deployments": deployments[:limit],
         "total": len(deployments),
         "apps": all_apps,
-        "statuses": ["all", "success", "failed", "in_progress", "rolled_back"]
+        "statuses": ["all", "success", "failed", "in_progress", "rolled_back"],
     }
 
 
 @app.post("/api/deployments/{app_name}/deploy")
 async def api_trigger_deployment(
-    app_name: str,
-    request: Request,
-    user: dict = Depends(require_auth)
+    app_name: str, request: Request, user: dict = Depends(require_auth)
 ):
     """Trigger a new deployment (saves to file)."""
     data = await request.json()
@@ -1428,29 +1655,34 @@ async def api_trigger_deployment(
             raise HTTPException(status_code=403, detail="No access to this app")
 
     # Save deployment to file
-    deployment = save_deployment({
-        "app": app_name,
-        "version": version,
-        "environment": environment,
-        "status": "in_progress",
-        "deployed_by": user["email"],
-        "duration": "-",
-        "commit": commit,
-        "message": message
-    })
+    deployment = save_deployment(
+        {
+            "app": app_name,
+            "version": version,
+            "environment": environment,
+            "status": "in_progress",
+            "deployed_by": user["email"],
+            "duration": "-",
+            "commit": commit,
+            "message": message,
+        }
+    )
 
     # Log activity
-    log_activity("deploy", user["email"], f"Deployed {app_name} {version} to {environment}")
+    log_activity(
+        "deploy", user["email"], f"Deployed {app_name} {version} to {environment}"
+    )
 
     return {
         "success": True,
         "message": f"Deployment of {app_name} {version} to {environment} initiated",
         "deployment_id": deployment["id"],
-        "triggered_by": user["email"]
+        "triggered_by": user["email"],
     }
 
 
 # ==================== Document Management API (Admin Only) ====================
+
 
 @app.get("/api/documents")
 async def api_list_documents(user: dict = Depends(require_admin)):
@@ -1458,7 +1690,7 @@ async def api_list_documents(user: dict = Depends(require_admin)):
     metadata = get_documents_metadata()
     return {
         "documents": metadata.get("documents", {}),
-        "total": len(metadata.get("documents", {}))
+        "total": len(metadata.get("documents", {})),
     }
 
 
@@ -1467,10 +1699,9 @@ async def api_upload_document(
     resource_type: str,
     resource_name: str,
     request: Request,
-    user: dict = Depends(require_admin)
+    user: dict = Depends(require_admin),
 ):
     """Upload a document for an app or server (admin only)."""
-    from fastapi import UploadFile, File, Form
 
     # Get form data
     form = await request.form()
@@ -1481,12 +1712,17 @@ async def api_upload_document(
 
     # Validate file type
     filename = file.filename
-    if not filename.lower().endswith(('.pdf', '.txt', '.log', '.md')):
-        raise HTTPException(status_code=400, detail="Only PDF, TXT, LOG, and MD files are allowed")
+    if not filename.lower().endswith((".pdf", ".txt", ".log", ".md")):
+        raise HTTPException(
+            status_code=400, detail="Only PDF, TXT, LOG, and MD files are allowed"
+        )
 
     # Validate resource type
     if resource_type not in ["app", "server", "website"]:
-        raise HTTPException(status_code=400, detail="Resource type must be 'app', 'server', or 'website'")
+        raise HTTPException(
+            status_code=400,
+            detail="Resource type must be 'app', 'server', or 'website'",
+        )
 
     # Create unique filename
     ext = Path(filename).suffix
@@ -1509,22 +1745,20 @@ async def api_upload_document(
         "size": len(content),
         "uploaded_by": user["email"],
         "uploaded_at": datetime.now().isoformat(),
-        "description": form.get("description", "")
+        "description": form.get("description", ""),
     }
     save_documents_metadata(metadata)
 
     return {
         "success": True,
         "message": f"Document uploaded successfully for {resource_type} '{resource_name}'",
-        "document": metadata["documents"][key]
+        "document": metadata["documents"][key],
     }
 
 
 @app.delete("/api/documents/{resource_type}/{resource_name}")
 async def api_delete_document(
-    resource_type: str,
-    resource_name: str,
-    user: dict = Depends(require_admin)
+    resource_type: str, resource_name: str, user: dict = Depends(require_admin)
 ):
     """Delete a document (admin only)."""
     metadata = get_documents_metadata()
@@ -1549,9 +1783,7 @@ async def api_delete_document(
 
 @app.get("/api/documents/{resource_type}/{resource_name}/download")
 async def api_download_document(
-    resource_type: str,
-    resource_name: str,
-    user: dict = Depends(require_auth)
+    resource_type: str, resource_name: str, user: dict = Depends(require_auth)
 ):
     """Download a document."""
     from fastapi.responses import FileResponse
@@ -1571,24 +1803,29 @@ async def api_download_document(
     return FileResponse(
         path=str(file_path),
         filename=doc_info["original_name"],
-        media_type="application/octet-stream"
+        media_type="application/octet-stream",
     )
 
 
 # ==================== GitHub API ====================
 
+
 def get_github_config():
     """Load GitHub config from global settings."""
     from devops_cli.config.settings import load_config
+
     return load_config()
+
 
 def can_access_repo(repo_name: str, team_repos: list) -> bool:
     """Check if team can access repo."""
     import fnmatch
+
     for pattern in team_repos:
-        if pattern == '*' or fnmatch.fnmatch(repo_name, pattern):
+        if pattern == "*" or fnmatch.fnmatch(repo_name, pattern):
             return True
     return False
+
 
 @app.get("/api/github/repos")
 async def api_github_repos(user: dict = Depends(require_auth)):
@@ -1601,11 +1838,16 @@ async def api_github_repos(user: dict = Depends(require_auth)):
     token = github_config.get("token", "")
 
     if not org:
-        return {"error": "GitHub organization not configured", "repos": [], "hint": "Admin: Configure github.org in config.yaml or via 'devops init'"}
+        return {
+            "error": "GitHub organization not configured",
+            "repos": [],
+            "hint": "Admin: Configure github.org in config.yaml or via 'devops init'",
+        }
 
     # Get user's team and allowed repos
     # We still need teams.yaml for team permissions
     from devops_cli.commands.admin import load_teams_config
+
     teams_config = load_teams_config()
     user_team = get_user_team(user["email"])
     teams = teams_config.get("teams", {})
@@ -1627,15 +1869,22 @@ async def api_github_repos(user: dict = Depends(require_auth)):
                 resp = await client.get(
                     f"https://api.github.com/orgs/{org}/repos?per_page=100&sort=updated",
                     headers=headers,
-                    timeout=10.0
+                    timeout=10.0,
                 )
 
                 if resp.status_code == 404:
                     return {"error": f"Organization '{org}' not found", "repos": []}
                 elif resp.status_code == 403:
-                    return {"error": "Rate limited or token invalid", "repos": [], "hint": "Add GitHub token in teams.yaml"}
+                    return {
+                        "error": "Rate limited or token invalid",
+                        "repos": [],
+                        "hint": "Add GitHub token in teams.yaml",
+                    }
                 elif resp.status_code != 200:
-                    return {"error": f"GitHub API error: {resp.status_code}", "repos": []}
+                    return {
+                        "error": f"GitHub API error: {resp.status_code}",
+                        "repos": [],
+                    }
 
                 all_repos = resp.json()
 
@@ -1653,17 +1902,19 @@ async def api_github_repos(user: dict = Depends(require_auth)):
     filtered_repos = []
     for repo in all_repos:
         if can_access_repo(repo["name"], allowed_repos):
-            filtered_repos.append({
-                "name": repo["name"],
-                "description": repo.get("description") or "No description",
-                "url": repo["html_url"],
-                "language": repo.get("language"),
-                "stars": repo.get("stargazers_count", 0),
-                "forks": repo.get("forks_count", 0),
-                "updated_at": repo.get("updated_at"),
-                "private": repo.get("private", False),
-                "default_branch": repo.get("default_branch", "main")
-            })
+            filtered_repos.append(
+                {
+                    "name": repo["name"],
+                    "description": repo.get("description") or "No description",
+                    "url": repo["html_url"],
+                    "language": repo.get("language"),
+                    "stars": repo.get("stargazers_count", 0),
+                    "forks": repo.get("forks_count", 0),
+                    "updated_at": repo.get("updated_at"),
+                    "private": repo.get("private", False),
+                    "default_branch": repo.get("default_branch", "main"),
+                }
+            )
 
     return {
         "org": org,
@@ -1672,17 +1923,20 @@ async def api_github_repos(user: dict = Depends(require_auth)):
         "repos": filtered_repos,
         "total": len(filtered_repos),
         "all_count": len(all_repos),
-        "cached": cached_repos is not None
+        "cached": cached_repos is not None,
     }
 
+
 @app.get("/api/github/repos/{owner}/{repo}/status")
-async def api_github_repo_status(owner: str, repo: str, user: dict = Depends(require_auth)):
+async def api_github_repo_status(
+    owner: str, repo: str, user: dict = Depends(require_auth)
+):
     """Fetch latest commit and CI status for a repository."""
     import httpx
 
     config = get_github_config()
     token = config.get("github", {}).get("token", "")
-    
+
     headers = {"Accept": "application/vnd.github.v3+json"}
     if token:
         headers["Authorization"] = f"token {token}"
@@ -1692,19 +1946,21 @@ async def api_github_repo_status(owner: str, repo: str, user: dict = Depends(req
             # 1. Get default branch (to know what to check)
             repo_resp = await client.get(
                 f"https://api.github.com/repos/{owner}/{repo}",
-                headers=headers, timeout=5.0
+                headers=headers,
+                timeout=5.0,
             )
             if repo_resp.status_code != 200:
                 return {"error": "Repo not found"}
-            
+
             default_branch = repo_resp.json().get("default_branch", "main")
 
             # 2. Fetch latest commit on default branch
             commit_resp = await client.get(
                 f"https://api.github.com/repos/{owner}/{repo}/commits/{default_branch}",
-                headers=headers, timeout=5.0
+                headers=headers,
+                timeout=5.0,
             )
-            
+
             commit_data = {}
             if commit_resp.status_code == 200:
                 c = commit_resp.json()
@@ -1713,14 +1969,15 @@ async def api_github_repo_status(owner: str, repo: str, user: dict = Depends(req
                     "message": c.get("commit", {}).get("message", ""),
                     "author": c.get("commit", {}).get("author", {}).get("name", ""),
                     "date": c.get("commit", {}).get("author", {}).get("date", ""),
-                    "html_url": c.get("html_url", "")
+                    "html_url": c.get("html_url", ""),
                 }
 
             # 3. Fetch latest workflow run
             # We look for the latest run on the default branch
             runs_resp = await client.get(
                 f"https://api.github.com/repos/{owner}/{repo}/actions/runs?branch={default_branch}&per_page=1",
-                headers=headers, timeout=5.0
+                headers=headers,
+                timeout=5.0,
             )
 
             pipeline_data = {"status": "unknown"}
@@ -1730,45 +1987,50 @@ async def api_github_repo_status(owner: str, repo: str, user: dict = Depends(req
                     latest = runs[0]
                     pipeline_data = {
                         "status": latest.get("status", "unknown"),
-                        "conclusion": latest.get("conclusion", "unknown"), # success, failure, etc.
+                        "conclusion": latest.get(
+                            "conclusion", "unknown"
+                        ),  # success, failure, etc.
                         "name": latest.get("name", ""),
                         "html_url": latest.get("html_url", ""),
-                        "created_at": latest.get("created_at", "")
+                        "created_at": latest.get("created_at", ""),
                     }
                 else:
                     pipeline_data = {"status": "no_runs", "conclusion": "neutral"}
 
-            return {
-                "repo": repo,
-                "commit": commit_data,
-                "pipeline": pipeline_data
-            }
+            return {"repo": repo, "commit": commit_data, "pipeline": pipeline_data}
 
     except Exception as e:
         return {"error": str(e)}
+
 
 @app.get("/api/github/config")
 async def api_github_config(user: dict = Depends(require_admin)):
     """Get GitHub configuration (admin only)."""
     from devops_cli.commands.admin import load_teams_config
-    
+
     config = get_github_config()
     teams_config = load_teams_config()
-    
+
     return {
         "org": config.get("github", {}).get("org", ""),
         "has_token": bool(config.get("github", {}).get("token")),
-        "teams": {k: {"name": v.get("name", k), "repos": v.get("repos", [])} for k, v in teams_config.get("teams", {}).items()}
+        "teams": {
+            k: {"name": v.get("name", k), "repos": v.get("repos", [])}
+            for k, v in teams_config.get("teams", {}).items()
+        },
     }
 
+
 @app.post("/api/github/config")
-async def api_update_github_config(request: Request, user: dict = Depends(require_admin)):
+async def api_update_github_config(
+    request: Request, user: dict = Depends(require_admin)
+):
     """Update GitHub configuration (admin only)."""
     from devops_cli.config.settings import save_config
-    
+
     data = await request.json()
     config = get_github_config()
-    
+
     if "github" not in config:
         config["github"] = {}
 
@@ -1782,14 +2044,164 @@ async def api_update_github_config(request: Request, user: dict = Depends(requir
     return {"success": True, "message": "GitHub configuration updated"}
 
 
+# ==================== GitHub Security Alerts API ====================
+
+
+@app.get("/api/github/repos/{owner}/{repo}/security-alerts")
+async def api_github_security_alerts(
+    owner: str, repo: str, user: dict = Depends(require_auth)
+):
+    """Fetch all security alerts for a repository."""
+    config = get_github_config()
+    token = config.get("github", {}).get("token", "")
+
+    if not token:
+        raise HTTPException(status_code=400, detail="GitHub token not configured")
+
+    # Fetch alerts concurrently
+    try:
+        dependabot_task = asyncio.to_thread(get_dependabot_alerts, owner, repo, token)
+        secret_task = asyncio.to_thread(get_secret_scanning_alerts, owner, repo, token)
+        code_task = asyncio.to_thread(get_code_scanning_alerts, owner, repo, token)
+
+        dependabot, secrets, code = await asyncio.gather(
+            dependabot_task, secret_task, code_task
+        )
+
+        # Calculate severity summary
+        severity_summary = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+
+        # Count Dependabot severities
+        for alert in dependabot or []:
+            sev = alert.get("severity", "").lower()
+            if sev in severity_summary:
+                severity_summary[sev] += 1
+
+        # Count Code Scanning severities
+        for alert in code or []:
+            sev = alert.get("severity", "").lower()
+            if sev == "error":
+                severity_summary["critical"] += 1
+            elif sev == "warning":
+                severity_summary["high"] += 1
+            elif sev in severity_summary:
+                severity_summary[sev] += 1
+
+        # Secret scanning is always treated as critical
+        severity_summary["critical"] += len(secrets or [])
+
+        return {
+            "owner": owner,
+            "repo": repo,
+            "alerts": {
+                "dependabot": dependabot or [],
+                "secret_scanning": secrets or [],
+                "code_scanning": code or [],
+            },
+            "summary": {
+                "dependabot": len(dependabot or []),
+                "secret_scanning": len(secrets or []),
+                "code_scanning": len(code or []),
+                "total": len(dependabot or [])
+                + len(secrets or [])
+                + len(code or []),
+                "critical": severity_summary["critical"],
+                "high": severity_summary["high"],
+                "medium": severity_summary["medium"],
+                "low": severity_summary["low"],
+            },
+        }
+    except Exception as e:
+        return {"error": str(e), "alerts": {}}
+
+
+# Store recent webhook events in memory
+security_events = []
+
+
+@app.post("/api/webhooks/github/security")
+async def github_security_webhook(request: Request):
+    """Handle GitHub security alert webhooks."""
+    # Verify signature if secret is configured (optional for now)
+    # payload = await request.body()
+    # signature = request.headers.get("X-Hub-Signature-256")
+
+    event_type = request.headers.get("X-GitHub-Event")
+    data = await request.json()
+
+    event = {
+        "timestamp": datetime.now().isoformat(),
+        "event_type": event_type,
+        "repo": data.get("repository", {}).get("full_name"),
+        "action": data.get("action"),
+        "alert": data.get("alert"),
+    }
+
+    security_events.insert(0, event)
+    # Keep last 50 events
+    if len(security_events) > 50:
+        security_events.pop()
+
+    # Log to system activity
+    log_activity(
+        "alert",
+        "github-webhook",
+        f"Security Alert: {event_type} {data.get('action')} in {event['repo']}",
+    )
+
+    return {"status": "received"}
+
+
+@app.get("/api/github/security-events")
+async def api_github_security_events(user: dict = Depends(require_auth)):
+    """Get recent security webhook events."""
+    return {"events": security_events}
+
+
+@app.get("/api/security/local-scan")
+async def api_local_security_scan(path: str = ".", user: dict = Depends(require_auth)):
+    """Run a local security scan on a specific codebase path."""
+    try:
+        # Auto-convert Windows paths to Linux (WSL) if applicable
+        processed_path = path
+        if ":" in path and (path.startswith("/") is False):
+            # Convert C:\Users\... to /mnt/c/Users/...
+            drive = path[0].lower()
+            remainder = path[2:].replace("\\", "/")
+            processed_path = f"/mnt/{drive}{remainder}"
+
+        # Validate path exists
+        scan_path = Path(processed_path).expanduser()
+        if not scan_path.exists():
+            raise HTTPException(
+                status_code=404, detail=f"Path not found: {processed_path}"
+            )
+
+        # Run scan in a thread to avoid blocking
+        results = await asyncio.to_thread(run_local_scan, str(scan_path))
+        return {
+            "success": True,
+            "results": results,
+            "path": str(scan_path.absolute()),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 # ==================== Config API ====================
+
 
 @app.get("/api/config/status")
 async def api_config_status(user: dict = Depends(require_auth)):
     """Get configuration status."""
     from devops_cli.commands.admin import (
-        load_apps_config, load_servers_config, load_aws_config, load_teams_config,
-        ADMIN_CONFIG_DIR
+        load_apps_config,
+        load_servers_config,
+        load_aws_config,
+        load_teams_config,
+        ADMIN_CONFIG_DIR,
     )
     from devops_cli.config.websites import load_websites_config
 
@@ -1798,12 +2210,14 @@ async def api_config_status(user: dict = Depends(require_auth)):
         servers_config = load_servers_config()
         aws_config = load_aws_config()
         websites_config = load_websites_config()
-        teams_config = load_teams_config() # Also load teams config
+        teams_config = load_teams_config()  # Also load teams config
 
         users = auth.list_users()
 
         # websites_config is already the websites dict (not wrapped)
-        websites_count = len(websites_config) if isinstance(websites_config, dict) else 0
+        websites_count = (
+            len(websites_config) if isinstance(websites_config, dict) else 0
+        )
 
         return {
             "initialized": ADMIN_CONFIG_DIR.exists(),
@@ -1813,17 +2227,18 @@ async def api_config_status(user: dict = Depends(require_auth)):
             "websites_count": websites_count,
             "aws_roles_count": len(aws_config.get("roles", {})),
             "teams_count": len(teams_config.get("teams", {})),
-            "users_count": len(users)
+            "users_count": len(users),
         }
     except Exception as e:
         return {"error": str(e)}
+
 
 @app.post("/api/config/upload")
 async def api_config_upload(
     file: UploadFile = File(...),
     config_type: str = Form(...),
     merge: bool = Form(...),
-    user: dict = Depends(require_admin)
+    user: dict = Depends(require_admin),
 ):
     """
     Upload a YAML configuration file to update various configurations.
@@ -1831,22 +2246,37 @@ async def api_config_upload(
     """
     import yaml
     from devops_cli.commands.admin import (
-        save_apps_config, save_aws_config, save_servers_config, save_teams_config,
-        load_apps_config, load_aws_config, load_servers_config, load_teams_config
+        save_apps_config,
+        save_aws_config,
+        save_servers_config,
+        save_teams_config,
+        load_apps_config,
+        load_aws_config,
+        load_servers_config,
+        load_teams_config,
     )
     from devops_cli.config.websites import load_websites_config, save_websites_config
-    from devops_cli.config.settings import save_config as save_global_config, load_config as load_global_config
+    from devops_cli.config.settings import (
+        save_config as save_global_config,
+        load_config as load_global_config,
+    )
     from devops_cli.config.schemas import (
-        AppConfigSchema, WebsiteConfigSchema, ServerConfigSchema,
-        AwsConfigSchema, TeamsConfigSchema, FullConfigSchema, AwsRoleSchema, TeamAccessSchema
+        AppConfigSchema,
+        WebsiteConfigSchema,
+        ServerConfigSchema,
+        AwsConfigSchema,
+        TeamsConfigSchema,
+        FullConfigSchema,
     )
 
     try:
-        content = (await file.read()).decode('utf-8')
+        content = (await file.read()).decode("utf-8")
         uploaded_data = yaml.safe_load(content)
 
         if not isinstance(uploaded_data, dict):
-            raise HTTPException(status_code=400, detail="Uploaded file is not a valid YAML dictionary.")
+            raise HTTPException(
+                status_code=400, detail="Uploaded file is not a valid YAML dictionary."
+            )
 
         # --- Validation and Saving Logic ---
         if config_type == "full":
@@ -1854,18 +2284,45 @@ async def api_config_upload(
             try:
                 validated_config = FullConfigSchema.model_validate(uploaded_data)
             except ValidationError as e:
-                raise HTTPException(status_code=400, detail=f"Full config validation error: {e.errors()}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Full config validation error: {e.errors()}",
+                )
 
             if not merge:
                 # Replace all configs
                 # Note: The underlying save functions are designed to save the *content* of the respective YAML file.
                 # Here, uploaded_data for "full" contains separate sections, not the direct content of one file.
                 # So we extract sections and save them to their corresponding files.
-                if validated_config.apps is not None: save_apps_config({"apps": {name: app.model_dump(by_alias=True) for name, app in validated_config.apps.items()}})
-                if validated_config.servers is not None: save_servers_config({"servers": {name: server.model_dump(by_alias=True) for name, server in validated_config.servers.items()}})
-                if validated_config.websites is not None: save_websites_config({name: website.model_dump(by_alias=True) for name, website in validated_config.websites.items()})
-                if validated_config.aws is not None: save_aws_config(validated_config.aws.model_dump(by_alias=True))
-                if validated_config.teams is not None: save_teams_config(validated_config.teams.model_dump(by_alias=True))
+                if validated_config.apps is not None:
+                    save_apps_config(
+                        {
+                            "apps": {
+                                name: app.model_dump(by_alias=True)
+                                for name, app in validated_config.apps.items()
+                            }
+                        }
+                    )
+                if validated_config.servers is not None:
+                    save_servers_config(
+                        {
+                            "servers": {
+                                name: server.model_dump(by_alias=True)
+                                for name, server in validated_config.servers.items()
+                            }
+                        }
+                    )
+                if validated_config.websites is not None:
+                    save_websites_config(
+                        {
+                            name: website.model_dump(by_alias=True)
+                            for name, website in validated_config.websites.items()
+                        }
+                    )
+                if validated_config.aws is not None:
+                    save_aws_config(validated_config.aws.model_dump(by_alias=True))
+                if validated_config.teams is not None:
+                    save_teams_config(validated_config.teams.model_dump(by_alias=True))
 
                 # Handle global settings that might be part of full export but not covered by other saves
                 # (e.g., github token is in settings.py's global config, not aws.yaml etc.)
@@ -1878,59 +2335,121 @@ async def api_config_upload(
                 # Merge logic for full config
                 # For now, restrict merge to specific sections for simplicity and to avoid complex recursive merges
                 # A full merge would require deep merging logic.
-                raise HTTPException(status_code=400, detail="Merge option not directly supported for 'full' config type. Please use 'replace' to overwrite or upload individual sections.")
-            
-            log_activity("config", user["email"], f"Uploaded and {'replaced' if not merge else 'merged'} full config.")
-            return {"success": True, "message": f"Full configuration {'replaced' if not merge else 'merged'} successfully."}
+                raise HTTPException(
+                    status_code=400,
+                    detail="Merge option not directly supported for 'full' config type. Please use 'replace' to overwrite or upload individual sections.",
+                )
+
+            log_activity(
+                "config",
+                user["email"],
+                f"Uploaded and {'replaced' if not merge else 'merged'} full config.",
+            )
+            return {
+                "success": True,
+                "message": f"Full configuration {'replaced' if not merge else 'merged'} successfully.",
+            }
 
         elif config_type == "apps":
             # For apps, the uploaded data should be a dict where keys are app names and values are app configs
             try:
-                validated_apps = {k: AppConfigSchema.model_validate(v) for k, v in uploaded_data.items()}
+                validated_apps = {
+                    k: AppConfigSchema.model_validate(v)
+                    for k, v in uploaded_data.items()
+                }
             except ValidationError as e:
-                raise HTTPException(status_code=400, detail=f"Applications config validation error: {e.errors()}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Applications config validation error: {e.errors()}",
+                )
 
             current_config = load_apps_config()
             if merge:
                 for name, app_data in validated_apps.items():
-                    current_config.setdefault("apps", {})[name] = app_data.model_dump(by_alias=True)
+                    current_config.setdefault("apps", {})[name] = app_data.model_dump(
+                        by_alias=True
+                    )
             else:
-                current_config["apps"] = {name: app.model_dump(by_alias=True) for name, app in validated_apps.items()}
+                current_config["apps"] = {
+                    name: app.model_dump(by_alias=True)
+                    for name, app in validated_apps.items()
+                }
             save_apps_config(current_config)
-            log_activity("config", user["email"], f"Uploaded and {'merged' if merge else 'replaced'} apps config.")
-            return {"success": True, "message": f"Applications configuration {'merged' if merge else 'replaced'} successfully."}
+            log_activity(
+                "config",
+                user["email"],
+                f"Uploaded and {'merged' if merge else 'replaced'} apps config.",
+            )
+            return {
+                "success": True,
+                "message": f"Applications configuration {'merged' if merge else 'replaced'} successfully.",
+            }
 
         elif config_type == "servers":
             try:
-                validated_servers = {k: ServerConfigSchema.model_validate(v) for k, v in uploaded_data.items()}
+                validated_servers = {
+                    k: ServerConfigSchema.model_validate(v)
+                    for k, v in uploaded_data.items()
+                }
             except ValidationError as e:
-                raise HTTPException(status_code=400, detail=f"Servers config validation error: {e.errors()}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Servers config validation error: {e.errors()}",
+                )
 
             current_config = load_servers_config()
             if merge:
                 for name, server_data in validated_servers.items():
-                    current_config.setdefault("servers", {})[name] = server_data.model_dump(by_alias=True)
+                    current_config.setdefault("servers", {})[name] = (
+                        server_data.model_dump(by_alias=True)
+                    )
             else:
-                current_config["servers"] = {name: server.model_dump(by_alias=True) for name, server in validated_servers.items()}
+                current_config["servers"] = {
+                    name: server.model_dump(by_alias=True)
+                    for name, server in validated_servers.items()
+                }
             save_servers_config(current_config)
-            log_activity("config", user["email"], f"Uploaded and {'merged' if merge else 'replaced'} servers config.")
-            return {"success": True, "message": f"Servers configuration {'merged' if merge else 'replaced'} successfully."}
+            log_activity(
+                "config",
+                user["email"],
+                f"Uploaded and {'merged' if merge else 'replaced'} servers config.",
+            )
+            return {
+                "success": True,
+                "message": f"Servers configuration {'merged' if merge else 'replaced'} successfully.",
+            }
 
         elif config_type == "websites":
             try:
-                validated_websites = {k: WebsiteConfigSchema.model_validate(v) for k, v in uploaded_data.items()}
+                validated_websites = {
+                    k: WebsiteConfigSchema.model_validate(v)
+                    for k, v in uploaded_data.items()
+                }
             except ValidationError as e:
-                raise HTTPException(status_code=400, detail=f"Websites config validation error: {e.errors()}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Websites config validation error: {e.errors()}",
+                )
 
             current_config = load_websites_config()
             if merge:
                 for name, website_data in validated_websites.items():
                     current_config[name] = website_data.model_dump(by_alias=True)
             else:
-                current_config = {name: website.model_dump(by_alias=True) for name, website in validated_websites.items()}
+                current_config = {
+                    name: website.model_dump(by_alias=True)
+                    for name, website in validated_websites.items()
+                }
             save_websites_config(current_config)
-            log_activity("config", user["email"], f"Uploaded and {'merged' if merge else 'replaced'} websites config.")
-            return {"success": True, "message": f"Websites configuration {'merged' if merge else 'replaced'} successfully."}
+            log_activity(
+                "config",
+                user["email"],
+                f"Uploaded and {'merged' if merge else 'replaced'} websites config.",
+            )
+            return {
+                "success": True,
+                "message": f"Websites configuration {'merged' if merge else 'replaced'} successfully.",
+            }
 
         elif config_type == "aws":
             # AWS config file usually contains top-level keys like 'organization', 'roles'
@@ -1938,42 +2457,79 @@ async def api_config_upload(
             try:
                 validated_aws_config = AwsConfigSchema.model_validate(uploaded_data)
             except ValidationError as e:
-                raise HTTPException(status_code=400, detail=f"AWS config validation error: {e.errors()}")
+                raise HTTPException(
+                    status_code=400, detail=f"AWS config validation error: {e.errors()}"
+                )
 
             current_config = load_aws_config()
             if merge:
                 # Merge top-level keys, specifically roles
-                current_config.update(validated_aws_config.model_dump(by_alias=True, exclude_unset=True))
+                current_config.update(
+                    validated_aws_config.model_dump(by_alias=True, exclude_unset=True)
+                )
                 # For roles, need a deeper merge
                 if validated_aws_config.roles:
-                    current_config.setdefault("roles", {}).update(validated_aws_config.roles.model_dump(by_alias=True, exclude_unset=True))
+                    current_config.setdefault("roles", {}).update(
+                        validated_aws_config.roles.model_dump(
+                            by_alias=True, exclude_unset=True
+                        )
+                    )
             else:
                 current_config = validated_aws_config.model_dump(by_alias=True)
             save_aws_config(current_config)
-            log_activity("config", user["email"], f"Uploaded and {'merged' if merge else 'replaced'} AWS config.")
-            return {"success": True, "message": f"AWS configuration {'merged' if merge else 'replaced'} successfully."}
+            log_activity(
+                "config",
+                user["email"],
+                f"Uploaded and {'merged' if merge else 'replaced'} AWS config.",
+            )
+            return {
+                "success": True,
+                "message": f"AWS configuration {'merged' if merge else 'replaced'} successfully.",
+            }
 
         elif config_type == "teams":
             try:
                 validated_teams_config = TeamsConfigSchema.model_validate(uploaded_data)
             except ValidationError as e:
-                raise HTTPException(status_code=400, detail=f"Teams config validation error: {e.errors()}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Teams config validation error: {e.errors()}",
+                )
 
             current_config = load_teams_config()
             if merge:
-                current_config.setdefault("teams", {}).update({name: team.model_dump(by_alias=True) for name, team in validated_teams_config.teams.items()})
+                current_config.setdefault("teams", {}).update(
+                    {
+                        name: team.model_dump(by_alias=True)
+                        for name, team in validated_teams_config.teams.items()
+                    }
+                )
             else:
-                current_config["teams"] = {name: team.model_dump(by_alias=True) for name, team in validated_teams_config.teams.items()}
+                current_config["teams"] = {
+                    name: team.model_dump(by_alias=True)
+                    for name, team in validated_teams_config.teams.items()
+                }
             save_teams_config(current_config)
-            log_activity("config", user["email"], f"Uploaded and {'merged' if merge else 'replaced'} teams config.")
-            return {"success": True, "message": f"Teams configuration {'merged' if merge else 'replaced'} successfully."}
+            log_activity(
+                "config",
+                user["email"],
+                f"Uploaded and {'merged' if merge else 'replaced'} teams config.",
+            )
+            return {
+                "success": True,
+                "message": f"Teams configuration {'merged' if merge else 'replaced'} successfully.",
+            }
     except Exception as e:
-        log_activity("config", user["email"], f"Config upload failed: {str(e)}", "failed")
-        raise HTTPException(status_code=500, detail=f"Configuration upload failed: {str(e)}")
-
+        log_activity(
+            "config", user["email"], f"Config upload failed: {str(e)}", "failed"
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Configuration upload failed: {str(e)}"
+        )
 
 
 # ==================== Run Server ====================
+
 
 def create_app():
     """Create and return the FastAPI app."""
@@ -1993,7 +2549,7 @@ def run_dashboard(host: str = None, port: int = None, reload: bool = False):
         host=host,
         port=port,
         reload=reload,
-        log_level="info"
+        log_level="info",
     )
 
 

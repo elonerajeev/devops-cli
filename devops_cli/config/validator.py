@@ -13,6 +13,7 @@ from enum import Enum
 
 class ConfigType(Enum):
     """Configuration file types."""
+
     APPS = "apps"
     SERVERS = "servers"
     WEBSITES = "websites"
@@ -94,15 +95,17 @@ class ConfigValidator:
     """Validates DevOps CLI configuration files."""
 
     # Secret reference patterns
-    ENV_VAR_PATTERN = re.compile(r'\$\{([A-Z_][A-Z0-9_]*)\}')
-    AWS_SECRET_PATTERN = re.compile(r'\$\{AWS_SECRET:([^}]+)\}')
-    GITHUB_SECRET_PATTERN = re.compile(r'\$\{GITHUB_SECRET:([^}]+)\}')
-    LOCAL_FILE_PATTERN = re.compile(r'^[~\/].*')  # Paths starting with ~ or /
+    ENV_VAR_PATTERN = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)\}")
+    AWS_SECRET_PATTERN = re.compile(r"\$\{AWS_SECRET:([^}]+)\}")
+    GITHUB_SECRET_PATTERN = re.compile(r"\$\{GITHUB_SECRET:([^}]+)\}")
+    LOCAL_FILE_PATTERN = re.compile(r"^[~\/].*")  # Paths starting with ~ or /
 
     def __init__(self):
         self.result = ValidationResult()
 
-    def validate_file(self, file_path: Path, config_type: ConfigType) -> ValidationResult:
+    def validate_file(
+        self, file_path: Path, config_type: ConfigType
+    ) -> ValidationResult:
         """
         Validate a YAML configuration file.
 
@@ -170,7 +173,9 @@ class ConfigValidator:
             for match in self.ENV_VAR_PATTERN.finditer(data):
                 var_name = match.group(1)
                 # Skip if it's part of AWS_SECRET or GITHUB_SECRET
-                if 'AWS_SECRET:' not in match.group(0) and 'GITHUB_SECRET:' not in match.group(0):
+                if "AWS_SECRET:" not in match.group(
+                    0
+                ) and "GITHUB_SECRET:" not in match.group(0):
                     self.result.add_secret_ref("ENV_VAR", var_name)
 
             # Check for local file paths
@@ -220,7 +225,7 @@ class ConfigValidator:
         if "type" not in config:
             self.result.add_error(f"App '{name}': missing 'type' field")
         else:
-            valid_types = ["ecs", "ec2", "lambda", "kubernetes", "docker", "custom"]
+            valid_types = ["lambda", "kubernetes", "docker", "custom"]
             if config["type"] not in valid_types:
                 self.result.add_error(
                     f"App '{name}': invalid type '{config['type']}'. "
@@ -233,7 +238,7 @@ class ConfigValidator:
             if not isinstance(logs, dict):
                 self.result.add_error(f"App '{name}': 'logs' must be a dictionary")
             elif "type" in logs:
-                valid_log_types = ["cloudwatch", "file", "docker", "kubernetes", "command"]
+                valid_log_types = ["cloudwatch"]
                 if logs["type"] not in valid_log_types:
                     self.result.add_warning(
                         f"App '{name}': log type '{logs['type']}' may not be supported. "
@@ -282,7 +287,9 @@ class ConfigValidator:
         required_fields = ["host", "user"]
         for field in required_fields:
             if field not in config or not config[field]:
-                self.result.add_error(f"Server '{name}': missing required field '{field}'")
+                self.result.add_error(
+                    f"Server '{name}': missing required field '{field}'"
+                )
 
         # Validate port
         if "port" in config:
@@ -329,19 +336,25 @@ class ConfigValidator:
         if "url" not in config or not config["url"]:
             self.result.add_error(f"Website '{name}': missing required field 'url'")
         elif not config["url"].startswith(("http://", "https://")):
-            self.result.add_error(f"Website '{name}': URL must start with http:// or https://")
+            self.result.add_error(
+                f"Website '{name}': URL must start with http:// or https://"
+            )
 
         # Validate method
         if "method" in config:
             valid_methods = ["GET", "POST", "HEAD", "PUT", "PATCH", "DELETE"]
             if config["method"].upper() not in valid_methods:
-                self.result.add_warning(f"Website '{name}': unusual HTTP method '{config['method']}'")
+                self.result.add_warning(
+                    f"Website '{name}': unusual HTTP method '{config['method']}'"
+                )
 
         # Validate expected_status
         if "expected_status" in config:
             status = config["expected_status"]
             if not isinstance(status, int) or status < 100 or status > 599:
-                self.result.add_error(f"Website '{name}': invalid expected_status '{status}'")
+                self.result.add_error(
+                    f"Website '{name}': invalid expected_status '{status}'"
+                )
 
     def _validate_teams(self, data: Dict[str, Any]):
         """Validate teams configuration."""
@@ -362,7 +375,9 @@ class ConfigValidator:
 
         # Check for default team
         if "default" not in teams:
-            self.result.add_warning("No 'default' team defined. Users may not have default access.")
+            self.result.add_warning(
+                "No 'default' team defined. Users may not have default access."
+            )
 
         for team_name, team_config in teams.items():
             self._validate_team(team_name, team_config)
@@ -414,7 +429,9 @@ class ConfigValidator:
         required_fields = ["owner", "repo"]
         for field in required_fields:
             if field not in config or not config[field]:
-                self.result.add_error(f"Repo '{name}': missing required field '{field}'")
+                self.result.add_error(
+                    f"Repo '{name}': missing required field '{field}'"
+                )
 
     def _validate_aws_roles(self, data: Dict[str, Any]):
         """Validate AWS roles configuration."""
@@ -485,7 +502,9 @@ class ConfigValidator:
         # Validate secret key
         if "secret_key" in creds and creds["secret_key"]:
             if len(creds["secret_key"]) < 20:
-                self.result.add_error("Invalid Secret Key. Too short (minimum 20 characters)")
+                self.result.add_error(
+                    "Invalid Secret Key. Too short (minimum 20 characters)"
+                )
 
         self.result.add_warning(
             "Remember to delete this file after import for security!"
@@ -521,7 +540,9 @@ class ConfigValidator:
 
         # Required fields
         if "email" not in config or not config["email"]:
-            self.result.add_error(f"User at index {index}: missing required field 'email'")
+            self.result.add_error(
+                f"User at index {index}: missing required field 'email'"
+            )
             return
 
         email = config["email"]

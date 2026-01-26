@@ -19,7 +19,9 @@ console = Console()
 def start_dashboard(
     port: int = typer.Option(3000, "--port", "-p", help="Port to run the dashboard on"),
     host: str = typer.Option("127.0.0.1", "--host", "-h", help="Host to bind to"),
-    reload: bool = typer.Option(False, "--reload", "-r", help="Enable auto-reload for development"),
+    reload: bool = typer.Option(
+        False, "--reload", "-r", help="Enable auto-reload for development"
+    ),
 ):
     """Start the web dashboard server.
 
@@ -40,29 +42,33 @@ def start_dashboard(
         import fastapi
     except ImportError:
         console.print()
-        console.print(Panel(
-            "[red]Missing dependencies for dashboard.[/red]\n\n"
-            "Install with:\n"
-            "  [cyan]pip install fastapi uvicorn jinja2 python-multipart[/cyan]",
-            title="[bold]Installation Required[/bold]",
-            border_style="red",
-            box=box.ROUNDED
-        ))
+        console.print(
+            Panel(
+                "[red]Missing dependencies for dashboard.[/red]\n\n"
+                "Install with:\n"
+                "  [cyan]pip install fastapi uvicorn jinja2 python-multipart[/cyan]",
+                title="[bold]Installation Required[/bold]",
+                border_style="red",
+                box=box.ROUNDED,
+            )
+        )
         raise typer.Exit(1)
 
     # Display startup info
     console.print()
-    console.print(Panel(
-        f"[bold green]Starting DevOps CLI Dashboard[/bold green]\n\n"
-        f"[cyan]URL:[/cyan]     http://{host}:{port}\n"
-        f"[cyan]Host:[/cyan]    {host}\n"
-        f"[cyan]Port:[/cyan]    {port}\n"
-        f"[cyan]Reload:[/cyan]  {'Enabled' if reload else 'Disabled'}\n\n"
-        f"[dim]Press Ctrl+C to stop[/dim]",
-        title="[bold]Web Dashboard[/bold]",
-        border_style="green",
-        box=box.ROUNDED
-    ))
+    console.print(
+        Panel(
+            f"[bold green]Starting DevOps CLI Dashboard[/bold green]\n\n"
+            f"[cyan]URL:[/cyan]     http://{host}:{port}\n"
+            f"[cyan]Host:[/cyan]    {host}\n"
+            f"[cyan]Port:[/cyan]    {port}\n"
+            f"[cyan]Reload:[/cyan]  {'Enabled' if reload else 'Disabled'}\n\n"
+            f"[dim]Press Ctrl+C to stop[/dim]",
+            title="[bold]Web Dashboard[/bold]",
+            border_style="green",
+            box=box.ROUNDED,
+        )
+    )
     console.print()
 
     # Open browser automatically (optional)
@@ -73,6 +79,7 @@ def start_dashboard(
 
             def open_browser():
                 import time
+
                 time.sleep(1.5)  # Wait for server to start
                 webbrowser.open(f"http://{host}:{port}")
 
@@ -82,6 +89,7 @@ def start_dashboard(
 
     # Run the dashboard
     from devops_cli.dashboard import run_dashboard
+
     run_dashboard(host=host, port=port, reload=reload)
 
 
@@ -89,28 +97,30 @@ def start_dashboard(
 def dashboard_info():
     """Show dashboard information and requirements."""
     console.print()
-    console.print(Panel(
-        "[bold]DevOps CLI Web Dashboard[/bold]\n\n"
-        "[cyan]Features:[/cyan]\n"
-        "  - Real-time monitoring status\n"
-        "  - Application health checks\n"
-        "  - Server management\n"
-        "  - User management (admin)\n"
-        "  - Mobile-friendly design\n\n"
-        "[cyan]Requirements:[/cyan]\n"
-        "  - fastapi\n"
-        "  - uvicorn\n"
-        "  - jinja2\n"
-        "  - python-multipart\n\n"
-        "[cyan]Install:[/cyan]\n"
-        "  pip install fastapi uvicorn jinja2 python-multipart\n\n"
-        "[cyan]Usage:[/cyan]\n"
-        "  devops dashboard start\n"
-        "  devops dashboard start --port 8080",
-        title="[bold]Dashboard Info[/bold]",
-        border_style="cyan",
-        box=box.ROUNDED
-    ))
+    console.print(
+        Panel(
+            "[bold]DevOps CLI Web Dashboard[/bold]\n\n"
+            "[cyan]Features:[/cyan]\n"
+            "  - Real-time monitoring status\n"
+            "  - Application health checks\n"
+            "  - Server management\n"
+            "  - User management (admin)\n"
+            "  - Mobile-friendly design\n\n"
+            "[cyan]Requirements:[/cyan]\n"
+            "  - fastapi\n"
+            "  - uvicorn\n"
+            "  - jinja2\n"
+            "  - python-multipart\n\n"
+            "[cyan]Install:[/cyan]\n"
+            "  pip install fastapi uvicorn jinja2 python-multipart\n\n"
+            "[cyan]Usage:[/cyan]\n"
+            "  devops dashboard start\n"
+            "  devops dashboard start --port 8080",
+            title="[bold]Dashboard Info[/bold]",
+            border_style="cyan",
+            box=box.ROUNDED,
+        )
+    )
 
 
 @app.callback(invoke_without_command=True)
@@ -119,6 +129,7 @@ def dashboard_callback(ctx: typer.Context):
     if ctx.invoked_subcommand is None:
         # Default to start command - use env vars if available
         import os
+
         port = int(os.getenv("DASHBOARD_PORT", "3000"))
         host = os.getenv("DASHBOARD_HOST", "127.0.0.1")
         start_dashboard(port=port, host=host, reload=False)

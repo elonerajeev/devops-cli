@@ -1,7 +1,6 @@
 """Real-time monitoring dashboard using Rich Live display - Premium Edition."""
 
 import asyncio
-import sys
 from datetime import datetime
 from typing import Optional
 
@@ -9,12 +8,8 @@ from rich.console import Console, Group
 from rich.live import Live
 from rich.table import Table
 from rich.panel import Panel
-from rich.layout import Layout
 from rich.text import Text
-from rich.style import Style
 from rich.align import Align
-from rich.columns import Columns
-from rich.padding import Padding
 from rich import box
 
 from .config import MonitoringConfig
@@ -24,19 +19,20 @@ from .checker import HealthChecker, HealthResult, HealthStatus
 # Premium Color Scheme
 class Colors:
     """Premium color palette."""
+
     # Primary colors
-    PRIMARY = "#00D4FF"      # Cyan
-    SECONDARY = "#7C3AED"    # Purple
-    ACCENT = "#F59E0B"       # Amber
+    PRIMARY = "#00D4FF"  # Cyan
+    SECONDARY = "#7C3AED"  # Purple
+    ACCENT = "#F59E0B"  # Amber
 
     # Status colors
-    HEALTHY = "#10B981"      # Emerald green
-    UNHEALTHY = "#EF4444"    # Red
-    DEGRADED = "#F59E0B"     # Amber
-    UNKNOWN = "#6B7280"      # Gray
+    HEALTHY = "#10B981"  # Emerald green
+    UNHEALTHY = "#EF4444"  # Red
+    DEGRADED = "#F59E0B"  # Amber
+    UNKNOWN = "#6B7280"  # Gray
 
     # Background accents
-    HEADER_BG = "#1E293B"    # Slate
+    HEADER_BG = "#1E293B"  # Slate
     CARD_BORDER = "#334155"  # Slate border
 
     # Text colors
@@ -48,6 +44,7 @@ class Colors:
 # Premium Icons
 class Icons:
     """Unicode icons for status display."""
+
     # Status icons
     HEALTHY = "✓"
     UNHEALTHY = "✗"
@@ -176,7 +173,9 @@ class MonitorDashboard:
             table.add_row(
                 f"[{Colors.TEXT_MUTED}]--[/]",
                 f"[{Colors.TEXT_MUTED}]No websites configured[/]",
-                "", "", ""
+                "",
+                "",
+                "",
             )
         else:
             for result in results:
@@ -186,8 +185,14 @@ class MonitorDashboard:
                 status_cell.append(f" {icon} ", style=f"bold {color}")
                 status_cell.append(label, style=f"bold {color}")
 
-                response = f"{result.response_time_ms:.0f}ms" if result.response_time_ms else "--"
-                uptime = f"{result.uptime_percent:.1f}%" if result.uptime_percent else "--"
+                response = (
+                    f"{result.response_time_ms:.0f}ms"
+                    if result.response_time_ms
+                    else "--"
+                )
+                uptime = (
+                    f"{result.uptime_percent:.1f}%" if result.uptime_percent else "--"
+                )
 
                 # Color code response time
                 if result.response_time_ms:
@@ -199,11 +204,7 @@ class MonitorDashboard:
                         response = f"[{Colors.UNHEALTHY}]{response}[/]"
 
                 table.add_row(
-                    status_cell,
-                    result.name,
-                    response,
-                    uptime,
-                    result.message
+                    status_cell, result.name, response, uptime, result.message
                 )
 
         title_text = Text()
@@ -243,7 +244,10 @@ class MonitorDashboard:
             table.add_row(
                 f"[{Colors.TEXT_MUTED}]--[/]",
                 f"[{Colors.TEXT_MUTED}]No apps configured[/]",
-                "", "", "", ""
+                "",
+                "",
+                "",
+                "",
             )
         else:
             for result in results:
@@ -255,7 +259,9 @@ class MonitorDashboard:
 
                 app_type = result.details.get("type", "--").upper()
                 cpu = result.details.get("cpu", "--")
-                memory = result.details.get("memory", result.details.get("memory_percent", "--"))
+                memory = result.details.get(
+                    "memory", result.details.get("memory_percent", "--")
+                )
                 restarts = result.details.get("restarts", "--")
 
                 # Type badge color
@@ -279,7 +285,7 @@ class MonitorDashboard:
                     app_type_styled,
                     cpu,
                     memory,
-                    str(restarts)
+                    str(restarts),
                 )
 
         title_text = Text()
@@ -319,7 +325,10 @@ class MonitorDashboard:
             table.add_row(
                 f"[{Colors.TEXT_MUTED}]--[/]",
                 f"[{Colors.TEXT_MUTED}]No servers configured[/]",
-                "", "", "", ""
+                "",
+                "",
+                "",
+                "",
             )
         else:
             for result in results:
@@ -331,8 +340,14 @@ class MonitorDashboard:
 
                 host = result.details.get("host", "--")
                 check_type = result.details.get("check", "--").upper()
-                response = f"{result.response_time_ms:.0f}ms" if result.response_time_ms else "--"
-                uptime = f"{result.uptime_percent:.1f}%" if result.uptime_percent else "--"
+                response = (
+                    f"{result.response_time_ms:.0f}ms"
+                    if result.response_time_ms
+                    else "--"
+                )
+                uptime = (
+                    f"{result.uptime_percent:.1f}%" if result.uptime_percent else "--"
+                )
 
                 # Color code response time
                 if result.response_time_ms:
@@ -359,7 +374,7 @@ class MonitorDashboard:
                     f"[{Colors.TEXT_SECONDARY}]{host}[/]",
                     check_styled,
                     response,
-                    uptime
+                    uptime,
                 )
 
         title_text = Text()
@@ -412,7 +427,7 @@ class MonitorDashboard:
             "",
             self._create_servers_table(self._last_results.get("servers", [])),
             "",
-            self._create_footer()
+            self._create_footer(),
         )
 
     async def _perform_checks(self):
@@ -440,7 +455,7 @@ class MonitorDashboard:
             console=self.console,
             refresh_per_second=2,
             screen=True,
-            transient=False
+            transient=False,
         ) as live:
             try:
                 while self._running:
@@ -465,11 +480,15 @@ class MonitorDashboard:
         self.console.print()
         self.console.print(self._create_header())
         self.console.print()
-        self.console.print(self._create_websites_table(self._last_results.get("websites", [])))
+        self.console.print(
+            self._create_websites_table(self._last_results.get("websites", []))
+        )
         self.console.print()
         self.console.print(self._create_apps_table(self._last_results.get("apps", [])))
         self.console.print()
-        self.console.print(self._create_servers_table(self._last_results.get("servers", [])))
+        self.console.print(
+            self._create_servers_table(self._last_results.get("servers", []))
+        )
         self.console.print()
 
 
@@ -501,7 +520,7 @@ class SimpleMonitorDashboard:
         summary = self.checker.get_summary()
 
         # Health percentage with color
-        health_pct = summary['health_percent']
+        health_pct = summary["health_percent"]
         if health_pct >= 90:
             health_color = Colors.HEALTHY
         elif health_pct >= 70:
@@ -514,7 +533,10 @@ class SimpleMonitorDashboard:
         header = Text()
         header.append("  DEVOPS ", style=f"bold {Colors.PRIMARY}")
         header.append("HEALTH CHECK  ", style=f"bold {Colors.TEXT_PRIMARY}")
-        header.append(f"│  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", style=Colors.TEXT_MUTED)
+        header.append(
+            f"│  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            style=Colors.TEXT_MUTED,
+        )
         self.console.print(Panel(header, box=box.DOUBLE, border_style=Colors.PRIMARY))
 
         # Overall health
@@ -533,8 +555,14 @@ class SimpleMonitorDashboard:
             self.console.print(f"  [{Colors.PRIMARY}]{Icons.WEBSITE} WEBSITES[/]")
             for r in results["websites"]:
                 icon, color = self._get_status_display(r.status)
-                time_str = f"[{Colors.TEXT_MUTED}]({r.response_time_ms:.0f}ms)[/]" if r.response_time_ms else ""
-                self.console.print(f"    [{color}]{icon}[/] {r.name}: [{color}]{r.message}[/] {time_str}")
+                time_str = (
+                    f"[{Colors.TEXT_MUTED}]({r.response_time_ms:.0f}ms)[/]"
+                    if r.response_time_ms
+                    else ""
+                )
+                self.console.print(
+                    f"    [{color}]{icon}[/] {r.name}: [{color}]{r.message}[/] {time_str}"
+                )
             self.console.print()
 
         # Apps
@@ -544,8 +572,12 @@ class SimpleMonitorDashboard:
                 icon, color = self._get_status_display(r.status)
                 extra = ""
                 if r.status == HealthStatus.HEALTHY and r.details.get("cpu"):
-                    extra = f"[{Colors.TEXT_MUTED}]CPU: {r.details.get('cpu', 'N/A')}[/]"
-                self.console.print(f"    [{color}]{icon}[/] {r.name}: [{color}]{r.message}[/] {extra}")
+                    extra = (
+                        f"[{Colors.TEXT_MUTED}]CPU: {r.details.get('cpu', 'N/A')}[/]"
+                    )
+                self.console.print(
+                    f"    [{color}]{icon}[/] {r.name}: [{color}]{r.message}[/] {extra}"
+                )
             self.console.print()
 
         # Servers
@@ -553,9 +585,15 @@ class SimpleMonitorDashboard:
             self.console.print(f"  [{Colors.ACCENT}]{Icons.SERVER} SERVERS[/]")
             for r in results["servers"]:
                 icon, color = self._get_status_display(r.status)
-                host = r.details.get('host', 'N/A')
-                time_str = f"[{Colors.TEXT_MUTED}]({r.response_time_ms:.0f}ms)[/]" if r.response_time_ms else ""
-                self.console.print(f"    [{color}]{icon}[/] {r.name} [{Colors.TEXT_MUTED}]({host})[/]: [{color}]{r.message}[/] {time_str}")
+                host = r.details.get("host", "N/A")
+                time_str = (
+                    f"[{Colors.TEXT_MUTED}]({r.response_time_ms:.0f}ms)[/]"
+                    if r.response_time_ms
+                    else ""
+                )
+                self.console.print(
+                    f"    [{color}]{icon}[/] {r.name} [{Colors.TEXT_MUTED}]({host})[/]: [{color}]{r.message}[/] {time_str}"
+                )
             self.console.print()
 
         return results

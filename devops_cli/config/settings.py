@@ -78,7 +78,7 @@ def get_default_config() -> dict[str, Any]:
                 #     "type": "file",
                 #     "path": "/var/log/nginx/access.log"
                 # }
-            }
+            },
         },
         "environments": {
             "dev": {"branch": "develop", "auto_deploy": True},
@@ -87,7 +87,7 @@ def get_default_config() -> dict[str, Any]:
         },
         "ci": {
             "provider": "github",  # github, gitlab, jenkins
-        }
+        },
     }
 
 
