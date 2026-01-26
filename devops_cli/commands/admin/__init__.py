@@ -64,6 +64,8 @@ app.command("app-list")(apps_module.list_apps)
 app.command("app-show")(apps_module.show_app)
 app.command("app-remove")(apps_module.remove_app)
 app.command("app-edit")(apps_module.edit_app)
+app.command("apps-import")(apps_module.import_apps)
+app.command("apps-export-template")(apps_module.export_apps_template)
 
 # Servers
 app.command("server-add")(servers_module.add_server)
@@ -71,6 +73,8 @@ app.command("server-list")(servers_module.list_servers)
 app.command("server-show")(servers_module.show_server)
 app.command("server-remove")(servers_module.remove_server)
 app.command("server-edit")(servers_module.edit_server)
+app.command("servers-import")(servers_module.import_servers)
+app.command("servers-export-template")(servers_module.export_servers_template)
 
 # Websites
 app.command("website-add")(websites_module.add_website)
@@ -78,6 +82,8 @@ app.command("website-list")(websites_module.list_websites)
 app.command("website-show")(websites_module.show_website)
 app.command("website-remove")(websites_module.remove_website)
 app.command("website-edit")(websites_module.edit_website)
+app.command("websites-import")(websites_module.import_websites)
+app.command("websites-export-template")(websites_module.export_websites_template)
 
 # Teams
 app.command("team-add")(teams_module.add_team)
@@ -85,6 +91,8 @@ app.command("team-list")(teams_module.list_teams)
 app.command("team-show")(teams_module.show_team)
 app.command("team-remove")(teams_module.remove_team)
 app.command("team-edit")(teams_module.edit_team)
+app.command("teams-import")(teams_module.import_teams)
+app.command("teams-export-template")(teams_module.export_teams_template)
 
 # AWS Role Management
 app.command("aws-add-role")(aws_module.add_aws_role)
@@ -123,9 +131,13 @@ app.command("repo-show")(repos_module.show_repository)
 app.command("repo-remove")(repos_module.remove_repository)
 app.command("repo-refresh")(repos_module.refresh_repository)
 app.command("repo-edit")(repos_module.edit_repository)
+app.command("repos-import")(repos_module.import_repositories)
+app.command("repos-export-template")(repos_module.export_repos_template)
 
 # Meeting Management
 app.add_typer(meetings_module.app, name="meeting", help="Manage daily meeting links")
+app.command("meetings-import")(meetings_module.import_meetings)
+app.command("meetings-export-template")(meetings_module.export_meetings_template)
 
 # Export/Import
 app.command("export")(core_module.export_config)

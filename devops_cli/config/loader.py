@@ -515,3 +515,621 @@ def load_users_yaml(file_path: Path) -> Dict[str, Any]:
         return data
     except yaml.YAMLError:
         return {}
+
+
+# --- Apps YAML Import/Export ---
+def get_apps_template() -> str:
+    """Generate a template YAML file content for apps."""
+    template = """# Applications Configuration File
+# =====================================
+# Bulk import applications for the DevOps CLI.
+#
+# Usage:
+#   1. Fill in your applications below
+#   2. Run: devops admin apps-import --file apps.yaml
+#
+
+apps:
+  # Example Lambda application
+  api-service:
+    type: lambda
+    description: API service Lambda function
+    lambda:
+      function_name: api-service
+      region: us-east-1
+    logs:
+      type: cloudwatch
+      log_group: /aws/lambda/api-service
+    health:
+      type: http
+      url: https://api.example.com/health
+      expected_status: 200
+    teams:
+      - default
+      - backend
+
+  # Example Kubernetes application
+  worker:
+    type: kubernetes
+    description: Background worker service
+    kubernetes:
+      namespace: production
+      deployment: worker
+      container: worker-app
+    logs:
+      type: cloudwatch
+      log_group: /k8s/production/worker
+    teams:
+      - default
+
+  # Example custom application
+  scheduler:
+    type: custom
+    description: Custom scheduler service
+    logs:
+      type: cloudwatch
+      log_group: /custom/scheduler
+      region: us-east-1
+    teams:
+      - default
+
+# Notes:
+# - type: Required - One of: lambda, kubernetes, docker, custom
+# - description: Optional - Human-readable description
+# - logs: Required - Log configuration (type and log_group)
+# - health: Optional - Health check configuration
+# - teams: Optional - Teams with access (defaults to ['default'])
+"""
+    return template
+
+
+def validate_apps_yaml(data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    """Validate the structure of apps from YAML."""
+    if not data:
+        return False, "Empty or invalid YAML data"
+
+    if "apps" not in data:
+        return False, "Missing 'apps' key in YAML file"
+
+    apps = data["apps"]
+
+    if not isinstance(apps, dict):
+        return False, "'apps' must be a dictionary"
+
+    if not apps:
+        return False, "No apps defined in 'apps'"
+
+    valid_types = ["lambda", "kubernetes", "docker", "custom"]
+
+    for app_name, app_config in apps.items():
+        if not isinstance(app_config, dict):
+            return False, f"App '{app_name}' must be a dictionary"
+
+        # Validate type
+        app_type = app_config.get("type")
+        if not app_type:
+            return False, f"App '{app_name}' missing required 'type'"
+        if app_type not in valid_types:
+            return False, f"App '{app_name}' has invalid type '{app_type}'. Must be one of: {', '.join(valid_types)}"
+
+        # Validate logs config
+        if "logs" not in app_config:
+            return False, f"App '{app_name}' missing required 'logs' configuration"
+
+        logs = app_config["logs"]
+        if not isinstance(logs, dict):
+            return False, f"App '{app_name}' logs must be a dictionary"
+        if "log_group" not in logs:
+            return False, f"App '{app_name}' missing required 'logs.log_group'"
+
+    return True, None
+
+
+def load_apps_yaml(file_path: Path) -> Dict[str, Any]:
+    """Load apps from a YAML input file."""
+    file_path = Path(file_path)
+    if not file_path.exists():
+        return {}
+
+    try:
+        with open(file_path) as f:
+            data = yaml.safe_load(f) or {}
+        return data
+    except yaml.YAMLError:
+        return {}
+
+
+# --- Servers YAML Import/Export ---
+def get_servers_template() -> str:
+    """Generate a template YAML file content for servers."""
+    template = """# Servers Configuration File
+# =====================================
+# Bulk import servers for SSH access.
+#
+# Usage:
+#   1. Fill in your servers below
+#   2. Run: devops admin servers-import --file servers.yaml
+#
+
+servers:
+  # Example web server
+  web-1:
+    host: 10.0.1.10
+    user: deploy
+    port: 22
+    key: ~/.ssh/id_rsa
+    tags:
+      - web
+      - production
+    teams:
+      - default
+      - frontend
+
+  # Example API server
+  api-prod:
+    host: api.example.com
+    user: ubuntu
+    port: 22
+    key: ~/.ssh/api_key
+    tags:
+      - api
+      - production
+    teams:
+      - default
+      - backend
+
+  # Example database server
+  db-master:
+    host: 10.0.2.100
+    user: admin
+    port: 2222
+    key: ~/.ssh/db_key
+    tags:
+      - database
+      - production
+    teams:
+      - default
+
+# Notes:
+# - host: Required - Hostname or IP address
+# - user: Required - SSH username
+# - port: Optional - SSH port (defaults to 22)
+# - key: Optional - Path to SSH key (defaults to ~/.ssh/id_rsa)
+# - tags: Optional - List of tags for grouping
+# - teams: Optional - Teams with access (defaults to ['default'])
+"""
+    return template
+
+
+def validate_servers_yaml(data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    """Validate the structure of servers from YAML."""
+    if not data:
+        return False, "Empty or invalid YAML data"
+
+    if "servers" not in data:
+        return False, "Missing 'servers' key in YAML file"
+
+    servers = data["servers"]
+
+    if not isinstance(servers, dict):
+        return False, "'servers' must be a dictionary"
+
+    if not servers:
+        return False, "No servers defined in 'servers'"
+
+    for server_name, server_config in servers.items():
+        if not isinstance(server_config, dict):
+            return False, f"Server '{server_name}' must be a dictionary"
+
+        # Required fields
+        if "host" not in server_config or not server_config["host"]:
+            return False, f"Server '{server_name}' missing required 'host'"
+
+        if "user" not in server_config or not server_config["user"]:
+            return False, f"Server '{server_name}' missing required 'user'"
+
+    return True, None
+
+
+def load_servers_yaml(file_path: Path) -> Dict[str, Any]:
+    """Load servers from a YAML input file."""
+    file_path = Path(file_path)
+    if not file_path.exists():
+        return {}
+
+    try:
+        with open(file_path) as f:
+            data = yaml.safe_load(f) or {}
+        return data
+    except yaml.YAMLError:
+        return {}
+
+
+# --- Teams YAML Import/Export ---
+def get_teams_template() -> str:
+    """Generate a template YAML file content for teams."""
+    template = """# Teams Configuration File
+# =====================================
+# Bulk import teams for access control.
+#
+# Usage:
+#   1. Fill in your teams below
+#   2. Run: devops admin teams-import --file teams.yaml
+#
+
+teams:
+  # Example backend team
+  backend:
+    name: backend
+    description: Backend development team
+    apps:
+      - api-service
+      - worker
+    servers:
+      - api-prod
+      - db-master
+
+  # Example frontend team
+  frontend:
+    name: frontend
+    description: Frontend development team
+    apps:
+      - "*"  # Access to all apps
+    servers:
+      - web-1
+
+  # Example devops team with full access
+  devops:
+    name: devops
+    description: DevOps team with full access
+    apps:
+      - "*"
+    servers:
+      - "*"
+
+# Notes:
+# - name: Required - Team name
+# - description: Optional - Human-readable description
+# - apps: Optional - List of app names or ['*'] for all
+# - servers: Optional - List of server names/tags or ['*'] for all
+"""
+    return template
+
+
+def validate_teams_yaml(data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    """Validate the structure of teams from YAML."""
+    if not data:
+        return False, "Empty or invalid YAML data"
+
+    if "teams" not in data:
+        return False, "Missing 'teams' key in YAML file"
+
+    teams = data["teams"]
+
+    if not isinstance(teams, dict):
+        return False, "'teams' must be a dictionary"
+
+    if not teams:
+        return False, "No teams defined in 'teams'"
+
+    for team_name, team_config in teams.items():
+        if not isinstance(team_config, dict):
+            return False, f"Team '{team_name}' must be a dictionary"
+
+        # Name is required (can default to key)
+        if "name" not in team_config:
+            team_config["name"] = team_name
+
+    return True, None
+
+
+def load_teams_yaml(file_path: Path) -> Dict[str, Any]:
+    """Load teams from a YAML input file."""
+    file_path = Path(file_path)
+    if not file_path.exists():
+        return {}
+
+    try:
+        with open(file_path) as f:
+            data = yaml.safe_load(f) or {}
+        return data
+    except yaml.YAMLError:
+        return {}
+
+
+# --- Websites YAML Import/Export ---
+def get_websites_template() -> str:
+    """Generate a template YAML file content for websites."""
+    template = """# Websites Configuration File
+# =====================================
+# Bulk import websites for health monitoring.
+#
+# Usage:
+#   1. Fill in your websites below
+#   2. Run: devops admin websites-import --file websites.yaml
+#
+
+websites:
+  # Example production website
+  frontend-prod:
+    name: frontend-prod
+    url: https://www.example.com/health
+    expected_status: 200
+    method: GET
+    timeout: 10
+    teams:
+      - default
+      - frontend
+
+  # Example API health check
+  api-health:
+    name: api-health
+    url: https://api.example.com/health
+    expected_status: 200
+    method: GET
+    timeout: 5
+    teams:
+      - default
+      - backend
+
+  # Example internal service
+  internal-dashboard:
+    name: internal-dashboard
+    url: https://dashboard.internal.com
+    expected_status: 200
+    method: HEAD
+    timeout: 15
+    teams:
+      - default
+
+# Notes:
+# - name: Optional - Display name (defaults to key)
+# - url: Required - Full URL to check
+# - expected_status: Optional - Expected HTTP status (defaults to 200)
+# - method: Optional - HTTP method: GET, POST, HEAD (defaults to GET)
+# - timeout: Optional - Timeout in seconds (defaults to 10)
+# - teams: Optional - Teams with access (defaults to ['default'])
+"""
+    return template
+
+
+def validate_websites_yaml(data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    """Validate the structure of websites from YAML."""
+    if not data:
+        return False, "Empty or invalid YAML data"
+
+    if "websites" not in data:
+        return False, "Missing 'websites' key in YAML file"
+
+    websites = data["websites"]
+
+    if not isinstance(websites, dict):
+        return False, "'websites' must be a dictionary"
+
+    if not websites:
+        return False, "No websites defined in 'websites'"
+
+    valid_methods = ["GET", "POST", "HEAD"]
+
+    for website_name, website_config in websites.items():
+        if not isinstance(website_config, dict):
+            return False, f"Website '{website_name}' must be a dictionary"
+
+        # URL is required
+        if "url" not in website_config or not website_config["url"]:
+            return False, f"Website '{website_name}' missing required 'url'"
+
+        url = website_config["url"]
+        if not url.startswith(("http://", "https://")):
+            return False, f"Website '{website_name}' has invalid URL format. Must start with http:// or https://"
+
+        # Validate method if provided
+        method = website_config.get("method", "GET")
+        if method not in valid_methods:
+            return False, f"Website '{website_name}' has invalid method '{method}'. Must be one of: {', '.join(valid_methods)}"
+
+    return True, None
+
+
+def load_websites_yaml(file_path: Path) -> Dict[str, Any]:
+    """Load websites from a YAML input file."""
+    file_path = Path(file_path)
+    if not file_path.exists():
+        return {}
+
+    try:
+        with open(file_path) as f:
+            data = yaml.safe_load(f) or {}
+        return data
+    except yaml.YAMLError:
+        return {}
+
+
+# --- Repos YAML Import/Export ---
+def get_repos_template() -> str:
+    """Generate a template YAML file content for repos."""
+    template = """# Repositories Configuration File
+# =====================================
+# Bulk import GitHub repositories.
+#
+# Usage:
+#   1. Fill in your repositories below
+#   2. Run: devops admin repos-import --file repos.yaml
+#
+
+repos:
+  # Example backend repository
+  backend:
+    owner: myorg
+    repo: backend-service
+    description: Main backend API service
+    default_branch: main
+    visibility: private
+    private: true
+    language: Python
+
+  # Example frontend repository
+  frontend:
+    owner: myorg
+    repo: frontend-app
+    description: React frontend application
+    default_branch: main
+    visibility: private
+    private: true
+    language: TypeScript
+
+  # Example shared library
+  shared-lib:
+    owner: myorg
+    repo: shared-library
+    description: Shared utilities library
+    default_branch: develop
+    visibility: internal
+    private: true
+    language: JavaScript
+
+# Notes:
+# - owner: Required - GitHub organization or username
+# - repo: Required - Repository name
+# - description: Optional - Repository description
+# - default_branch: Optional - Default branch (defaults to 'main')
+# - visibility: Optional - One of: public, private, internal
+# - private: Optional - Boolean indicating if repo is private
+# - language: Optional - Primary programming language
+"""
+    return template
+
+
+def validate_repos_yaml(data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    """Validate the structure of repos from YAML."""
+    if not data:
+        return False, "Empty or invalid YAML data"
+
+    if "repos" not in data:
+        return False, "Missing 'repos' key in YAML file"
+
+    repos = data["repos"]
+
+    if not isinstance(repos, dict):
+        return False, "'repos' must be a dictionary"
+
+    if not repos:
+        return False, "No repos defined in 'repos'"
+
+    for repo_name, repo_config in repos.items():
+        if not isinstance(repo_config, dict):
+            return False, f"Repo '{repo_name}' must be a dictionary"
+
+        # Required fields
+        if "owner" not in repo_config or not repo_config["owner"]:
+            return False, f"Repo '{repo_name}' missing required 'owner'"
+
+        if "repo" not in repo_config or not repo_config["repo"]:
+            return False, f"Repo '{repo_name}' missing required 'repo'"
+
+    return True, None
+
+
+def load_repos_yaml(file_path: Path) -> Dict[str, Any]:
+    """Load repos from a YAML input file."""
+    file_path = Path(file_path)
+    if not file_path.exists():
+        return {}
+
+    try:
+        with open(file_path) as f:
+            data = yaml.safe_load(f) or {}
+        return data
+    except yaml.YAMLError:
+        return {}
+
+
+# --- Meetings YAML Import/Export ---
+def get_meetings_template() -> str:
+    """Generate a template YAML file content for meetings."""
+    template = """# Meetings Configuration File
+# =====================================
+# Bulk import meeting configurations.
+#
+# Usage:
+#   1. Fill in your meetings below
+#   2. Run: devops admin meetings-import --file meetings.yaml
+#
+
+meetings:
+  # Daily standup
+  standup:
+    name: Daily Standup
+    time: "09:30"
+    link: https://meet.google.com/abc-defg-hij
+
+  # Afternoon sync
+  afternoon:
+    name: Afternoon Sync
+    time: "15:00"
+    link: https://zoom.us/j/1234567890
+
+  # Evening review
+  evening:
+    name: Evening Review
+    time: "18:00"
+    link: https://meet.google.com/xyz-uvwx-rst
+
+# Notes:
+# - name: Optional - Display name for the meeting
+# - time: Required - Time in HH:MM format (24-hour)
+# - link: Required - Google Meet, Zoom, or other meeting link
+"""
+    return template
+
+
+def validate_meetings_yaml(data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    """Validate the structure of meetings from YAML."""
+    if not data:
+        return False, "Empty or invalid YAML data"
+
+    if "meetings" not in data:
+        return False, "Missing 'meetings' key in YAML file"
+
+    meetings = data["meetings"]
+
+    if not isinstance(meetings, dict):
+        return False, "'meetings' must be a dictionary"
+
+    if not meetings:
+        return False, "No meetings defined in 'meetings'"
+
+    import re
+    time_pattern = re.compile(r'^([01]?[0-9]|2[0-3]):[0-5][0-9]$')
+
+    for meeting_id, meeting_config in meetings.items():
+        if not isinstance(meeting_config, dict):
+            return False, f"Meeting '{meeting_id}' must be a dictionary"
+
+        # Time is required
+        if "time" not in meeting_config or not meeting_config["time"]:
+            return False, f"Meeting '{meeting_id}' missing required 'time'"
+
+        time_str = str(meeting_config["time"])
+        if not time_pattern.match(time_str):
+            return False, f"Meeting '{meeting_id}' has invalid time format. Use HH:MM (24-hour)"
+
+        # Link is required
+        if "link" not in meeting_config or not meeting_config["link"]:
+            return False, f"Meeting '{meeting_id}' missing required 'link'"
+
+    return True, None
+
+
+def load_meetings_yaml(file_path: Path) -> Dict[str, Any]:
+    """Load meetings from a YAML input file."""
+    file_path = Path(file_path)
+    if not file_path.exists():
+        return {}
+
+    try:
+        with open(file_path) as f:
+            data = yaml.safe_load(f) or {}
+        return data
+    except yaml.YAMLError:
+        return {}

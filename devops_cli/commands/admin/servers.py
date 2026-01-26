@@ -9,6 +9,8 @@ import typer
 import yaml
 from rich.prompt import Prompt, Confirm
 
+from pathlib import Path
+
 from devops_cli.commands.admin.base import (
     console,
     load_servers_config,
@@ -20,6 +22,11 @@ from devops_cli.commands.admin.base import (
     info,
     header,
     create_table,
+    handle_duplicate,
+    handle_duplicate_batch,
+    get_servers_template,
+    validate_servers_yaml,
+    load_servers_yaml,
 )
 
 app = typer.Typer()
@@ -31,6 +38,20 @@ def add_server():
     header("Add New Server")
 
     name = Prompt.ask("Server name (e.g., web-1, api-prod)")
+
+    config = load_servers_config()
+
+    # Check for duplicate
+    exists = name in config.get("servers", {})
+    action = handle_duplicate("Server", name, exists)
+
+    if action == "cancel":
+        info("Cancelled")
+        return
+    elif action == "skip":
+        info(f"Keeping existing server '{name}'")
+        return
+
     host = Prompt.ask("Hostname or IP")
     user = Prompt.ask("SSH user", default="deploy")
     port = int(Prompt.ask("SSH port", default="22"))
@@ -38,8 +59,6 @@ def add_server():
 
     tags_input = Prompt.ask("Tags (comma-separated, e.g., web,production)", default="")
     tags = [t.strip() for t in tags_input.split(",") if t.strip()]
-
-    config = load_servers_config()
 
     config["servers"][name] = {
         "host": host,
@@ -168,3 +187,126 @@ def edit_server(
         success(f"Server '{name}' updated")
     else:
         info("Changes discarded")
+
+
+@app.command("servers-import")
+def import_servers(
+    file: str = typer.Option(..., "--file", "-f", help="Path to YAML file with servers"),
+    skip_existing: bool = typer.Option(
+        True,
+        "--skip-existing/--overwrite-existing",
+        help="Skip existing servers (default) or overwrite them",
+    ),
+):
+    """Import servers from a YAML file."""
+    header("Import Servers from YAML")
+
+    file_path = Path(file)
+
+    if not file_path.exists():
+        error(f"File not found: {file}")
+        info("Create a template with: devops admin servers-export-template --output servers.yaml")
+        return
+
+    info(f"Loading servers from: {file}")
+    console.print()
+
+    data = load_servers_yaml(file_path)
+
+    if not data:
+        error("Could not load YAML file")
+        return
+
+    is_valid, error_msg = validate_servers_yaml(data)
+    if not is_valid:
+        error(f"Validation failed: {error_msg}")
+        return
+
+    servers_to_import = data["servers"]
+    config = load_servers_config()
+
+    if "servers" not in config:
+        config["servers"] = {}
+
+    # Analyze what will be imported
+    new_servers = []
+    existing_servers = []
+
+    for server_name in servers_to_import:
+        if server_name in config["servers"]:
+            existing_servers.append(server_name)
+        else:
+            new_servers.append(server_name)
+
+    info(f"Found {len(servers_to_import)} servers to import:")
+    for server_name in servers_to_import:
+        status = "(new)" if server_name in new_servers else "(exists - will skip)" if skip_existing else "(exists - will overwrite)"
+        console.print(f"  - {server_name} {status}")
+
+    console.print()
+
+    if existing_servers and skip_existing:
+        warning(f"Skipping {len(existing_servers)} existing servers: {', '.join(existing_servers)}")
+        console.print()
+
+    if not Confirm.ask("Proceed with import?", default=False):
+        info("Cancelled")
+        return
+
+    imported = 0
+    skipped = 0
+
+    for server_name, server_config in servers_to_import.items():
+        action = handle_duplicate_batch("Server", server_name, server_name in config["servers"], skip_existing)
+
+        if action == "skip":
+            skipped += 1
+            continue
+
+        # Add timestamp
+        server_config["added_at"] = datetime.now().isoformat()
+        config["servers"][server_name] = server_config
+        imported += 1
+        success(f"Imported: {server_name}")
+
+    save_servers_config(config)
+
+    console.print()
+    info("Import Summary:")
+    info(f"  Imported: {imported} servers")
+    if skipped > 0:
+        info(f"  Skipped: {skipped} servers (already existed)")
+
+
+@app.command("servers-export-template")
+def export_servers_template(
+    output: str = typer.Option(
+        "servers-template.yaml", "--output", "-o", help="Output file path"
+    ),
+):
+    """Export a template YAML file for bulk server registration."""
+    header("Export Servers Template")
+
+    output_path = Path(output)
+
+    if output_path.exists():
+        warning(f"File already exists: {output}")
+        if not Confirm.ask("Overwrite?"):
+            info("Cancelled")
+            return
+
+    template = get_servers_template()
+
+    try:
+        with open(output_path, "w") as f:
+            f.write(template)
+
+        success(f"Template exported to: {output}")
+        console.print()
+        info("Next steps:")
+        info(f"  1. Edit '{output}' with your servers")
+        info(f"  2. Run: devops admin servers-import --file {output}")
+        console.print()
+
+    except IOError as e:
+        error(f"Failed to write template: {e}")

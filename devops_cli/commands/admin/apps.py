@@ -9,6 +9,8 @@ import typer
 import yaml
 from rich.prompt import Prompt, Confirm
 
+from pathlib import Path
+
 from devops_cli.commands.admin.base import (
     console,
     load_apps_config,
@@ -21,6 +23,11 @@ from devops_cli.commands.admin.base import (
     info,
     header,
     create_table,
+    handle_duplicate,
+    handle_duplicate_batch,
+    get_apps_template,
+    validate_apps_yaml,
+    load_apps_yaml,
 )
 
 app = typer.Typer()
@@ -33,14 +40,26 @@ def add_app():
 
     # Basic info
     app_name = Prompt.ask("Application name (e.g., api, backend, worker)")
+
+    config = load_apps_config()
+
+    # Check for duplicate
+    exists = app_name in config.get("apps", {})
+    action = handle_duplicate("App", app_name, exists)
+
+    if action == "cancel":
+        info("Cancelled")
+        return
+    elif action == "skip":
+        info(f"Keeping existing app '{app_name}'")
+        return
+
     app_type = Prompt.ask(
         "Application type",
         choices=["lambda", "kubernetes", "docker", "custom"],
         default="custom",
     )
     description = Prompt.ask("Description", default=f"{app_name} application")
-
-    config = load_apps_config()
 
     app_config = {
         "name": app_name,
@@ -247,3 +266,126 @@ def edit_app(
         success(f"Application '{name}' updated")
     else:
         info("Changes discarded")
+
+
+@app.command("apps-import")
+def import_apps(
+    file: str = typer.Option(..., "--file", "-f", help="Path to YAML file with apps"),
+    skip_existing: bool = typer.Option(
+        True,
+        "--skip-existing/--overwrite-existing",
+        help="Skip existing apps (default) or overwrite them",
+    ),
+):
+    """Import applications from a YAML file."""
+    header("Import Applications from YAML")
+
+    file_path = Path(file)
+
+    if not file_path.exists():
+        error(f"File not found: {file}")
+        info("Create a template with: devops admin apps-export-template --output apps.yaml")
+        return
+
+    info(f"Loading apps from: {file}")
+    console.print()
+
+    data = load_apps_yaml(file_path)
+
+    if not data:
+        error("Could not load YAML file")
+        return
+
+    is_valid, error_msg = validate_apps_yaml(data)
+    if not is_valid:
+        error(f"Validation failed: {error_msg}")
+        return
+
+    apps_to_import = data["apps"]
+    config = load_apps_config()
+
+    if "apps" not in config:
+        config["apps"] = {}
+
+    # Analyze what will be imported
+    new_apps = []
+    existing_apps = []
+
+    for app_name in apps_to_import:
+        if app_name in config["apps"]:
+            existing_apps.append(app_name)
+        else:
+            new_apps.append(app_name)
+
+    info(f"Found {len(apps_to_import)} apps to import:")
+    for app_name in apps_to_import:
+        status = "(new)" if app_name in new_apps else "(exists - will skip)" if skip_existing else "(exists - will overwrite)"
+        console.print(f"  - {app_name} {status}")
+
+    console.print()
+
+    if existing_apps and skip_existing:
+        warning(f"Skipping {len(existing_apps)} existing apps: {', '.join(existing_apps)}")
+        console.print()
+
+    if not Confirm.ask("Proceed with import?", default=False):
+        info("Cancelled")
+        return
+
+    imported = 0
+    skipped = 0
+
+    for app_name, app_config in apps_to_import.items():
+        action = handle_duplicate_batch("App", app_name, app_name in config["apps"], skip_existing)
+
+        if action == "skip":
+            skipped += 1
+            continue
+
+        # Add timestamp
+        app_config["added_at"] = datetime.now().isoformat()
+        config["apps"][app_name] = app_config
+        imported += 1
+        success(f"Imported: {app_name}")
+
+    save_apps_config(config)
+
+    console.print()
+    info("Import Summary:")
+    info(f"  Imported: {imported} apps")
+    if skipped > 0:
+        info(f"  Skipped: {skipped} apps (already existed)")
+
+
+@app.command("apps-export-template")
+def export_apps_template(
+    output: str = typer.Option(
+        "apps-template.yaml", "--output", "-o", help="Output file path"
+    ),
+):
+    """Export a template YAML file for bulk app registration."""
+    header("Export Apps Template")
+
+    output_path = Path(output)
+
+    if output_path.exists():
+        warning(f"File already exists: {output}")
+        if not Confirm.ask("Overwrite?"):
+            info("Cancelled")
+            return
+
+    template = get_apps_template()
+
+    try:
+        with open(output_path, "w") as f:
+            f.write(template)
+
+        success(f"Template exported to: {output}")
+        console.print()
+        info("Next steps:")
+        info(f"  1. Edit '{output}' with your applications")
+        info(f"  2. Run: devops admin apps-import --file {output}")
+        console.print()
+
+    except IOError as e:
+        error(f"Failed to write template: {e}")

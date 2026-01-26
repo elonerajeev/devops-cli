@@ -9,12 +9,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DEFAULT_CONFIG_PATH = Path.home() / ".devops-cli" / "config.yaml"
+from devops_cli.config.manager import config_manager
+
+DEFAULT_CONFIG_PATH = config_manager.CONFIG_FILES["global"]
 LOCAL_CONFIG_PATH = Path.cwd() / "devops-cli.yaml"
 
 
 def get_config_path() -> Path:
     """Get the config file path (local takes precedence)."""
+    # If ConfigManager has resolved a local directory, prefer that
+    if ".devops-cli" in str(config_manager.CONFIG_DIR):
+        return DEFAULT_CONFIG_PATH
+        
     if LOCAL_CONFIG_PATH.exists():
         return LOCAL_CONFIG_PATH
     return DEFAULT_CONFIG_PATH

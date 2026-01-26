@@ -56,24 +56,6 @@ class ConfigManager:
         config_manager.clear_cache()
     """
 
-    # Configuration directory
-    CONFIG_DIR = Path.home() / ".devops-cli"
-
-    # Config file paths
-    CONFIG_FILES = {
-        "global": CONFIG_DIR / "config.yaml",
-        "apps": CONFIG_DIR / "apps.yaml",
-        "servers": CONFIG_DIR / "servers.yaml",
-        "websites": CONFIG_DIR / "websites.yaml",
-        "aws": CONFIG_DIR / "aws.yaml",
-        "teams": CONFIG_DIR / "teams.yaml",
-        "repos": CONFIG_DIR / "repos.yaml",
-        "meetings": CONFIG_DIR / "meetings.yaml",
-    }
-
-    # Secrets directory
-    SECRETS_DIR = CONFIG_DIR / "secrets"
-
     def __init__(self, auto_reload: bool = False):
         """Initialize the ConfigManager.
 
@@ -85,6 +67,43 @@ class ConfigManager:
         self._cache: Dict[str, CacheEntry] = {}
         self._lock = threading.RLock()
         self._auto_reload = auto_reload
+        self.CONFIG_DIR = self._resolve_config_dir()
+        
+        # Secrets directory
+        self.SECRETS_DIR = self.CONFIG_DIR / "secrets"
+
+        # Config file paths
+        self.CONFIG_FILES = {
+            "global": self.CONFIG_DIR / "config.yaml",
+            "apps": self.CONFIG_DIR / "apps.yaml",
+            "servers": self.CONFIG_DIR / "servers.yaml",
+            "websites": self.CONFIG_DIR / "websites.yaml",
+            "aws": self.CONFIG_DIR / "aws.yaml",
+            "teams": self.CONFIG_DIR / "teams.yaml",
+            "repos": self.CONFIG_DIR / "repos.yaml",
+            "meetings": self.CONFIG_DIR / "meetings.yaml",
+        }
+
+    def _resolve_config_dir(self) -> Path:
+        """Resolve the configuration directory path.
+        
+        Priority:
+        1. DEVOPS_CONFIG_DIR environment variable
+        2. .devops-cli directory in current working directory (local config)
+        3. ~/.devops-cli directory (global config)
+        """
+        # 1. Environment variable
+        env_dir = os.environ.get("DEVOPS_CONFIG_DIR")
+        if env_dir:
+            return Path(env_dir).resolve()
+            
+        # 2. Local config
+        local_dir = Path.cwd() / ".devops-cli"
+        if local_dir.exists() and local_dir.is_dir():
+            return local_dir
+            
+        # 3. Global config (default)
+        return Path.home() / ".devops-cli"
 
     def _ensure_dirs(self) -> None:
         """Ensure configuration directories exist."""

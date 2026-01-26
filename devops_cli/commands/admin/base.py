@@ -39,6 +39,30 @@ from devops_cli.config.loader import (
     get_users_template,
     validate_users_yaml,
     load_users_yaml,
+    # Apps YAML functions
+    get_apps_template,
+    validate_apps_yaml,
+    load_apps_yaml,
+    # Servers YAML functions
+    get_servers_template,
+    validate_servers_yaml,
+    load_servers_yaml,
+    # Teams YAML functions
+    get_teams_template,
+    validate_teams_yaml,
+    load_teams_yaml,
+    # Websites YAML functions
+    get_websites_template,
+    validate_websites_yaml,
+    load_websites_yaml,
+    # Repos YAML functions
+    get_repos_template,
+    validate_repos_yaml,
+    load_repos_yaml,
+    # Meetings YAML functions
+    get_meetings_template,
+    validate_meetings_yaml,
+    load_meetings_yaml,
 )
 from devops_cli.config.settings import load_config
 from devops_cli.config.repos import (
@@ -164,3 +188,77 @@ def check_admin_access(ctx: typer.Context):
             )
         )
         raise typer.Exit(1)
+
+
+def handle_duplicate(
+    resource_type: str,
+    name: str,
+    exists: bool
+) -> str:
+    """
+    Handle duplicate resource detection with interactive menu.
+
+    Args:
+        resource_type: Type of resource (e.g., "App", "Server", "Team")
+        name: Name of the resource
+        exists: Whether the resource already exists
+
+    Returns:
+        "overwrite" - User chose to overwrite existing
+        "skip" - User chose to skip (keep existing)
+        "cancel" - User chose to cancel operation
+        "create" - Resource doesn't exist, proceed with creation
+    """
+    if not exists:
+        return "create"
+
+    console.print()
+    warning(f"{resource_type} '{name}' already exists.")
+    console.print()
+    console.print("[bold]What do you want to do?[/bold]")
+    console.print("  [cyan][1][/cyan] Overwrite existing configuration")
+    console.print("  [cyan][2][/cyan] Skip (keep existing)")
+    console.print("  [cyan][3][/cyan] Cancel")
+    console.print()
+
+    choice = Prompt.ask(
+        "Enter choice",
+        choices=["1", "2", "3"],
+        default="2"
+    )
+
+    if choice == "1":
+        return "overwrite"
+    elif choice == "2":
+        return "skip"
+    else:
+        return "cancel"
+
+
+def handle_duplicate_batch(
+    resource_type: str,
+    name: str,
+    exists: bool,
+    skip_existing: bool
+) -> str:
+    """
+    Handle duplicate resource detection for batch imports.
+
+    Args:
+        resource_type: Type of resource (e.g., "App", "Server", "Team")
+        name: Name of the resource
+        exists: Whether the resource already exists
+        skip_existing: If True, skip existing; if False, overwrite
+
+    Returns:
+        "overwrite" - Overwrite existing
+        "skip" - Skip (keep existing)
+        "create" - Resource doesn't exist, proceed with creation
+    """
+    if not exists:
+        return "create"
+
+    if skip_existing:
+        return "skip"
+    else:
+        return "overwrite"
