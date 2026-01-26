@@ -7,9 +7,10 @@ import os
 import stat
 from pathlib import Path
 from typing import Dict
+from devops_cli.config.manager import config_manager
 
 # Auth configuration
-AUTH_DIR = Path.home() / ".devops-cli" / "auth"
+AUTH_DIR = config_manager.CONFIG_DIR / "auth"
 
 
 def _ensure_auth_dir():

@@ -28,8 +28,10 @@ class ConfigCheck:
     admin_action: Optional[str] = None
 
 
-# Config paths (kept for backward compatibility)
-CONFIG_DIR = Path.home() / ".devops-cli"
+# Config paths (kept for backward compatibility, but now dynamic)
+from devops_cli.config.manager import config_manager
+
+CONFIG_DIR = config_manager.CONFIG_DIR
 APPS_CONFIG = CONFIG_DIR / "apps.yaml"
 SERVERS_CONFIG = CONFIG_DIR / "servers.yaml"
 AWS_CONFIG = CONFIG_DIR / "aws.yaml"

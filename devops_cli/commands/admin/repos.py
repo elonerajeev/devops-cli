@@ -30,6 +30,11 @@ from devops_cli.commands.admin.base import (
     info,
     header,
     create_table,
+    handle_duplicate,
+    handle_duplicate_batch,
+    get_repos_template,
+    validate_repos_yaml,
+    load_repos_yaml,
 )
 
 app = typer.Typer()
@@ -173,9 +178,16 @@ def add_repository(
         return
 
     existing_repos = load_repos()
-    if name in existing_repos:
-        error(f"Repository '{name}' already exists in configuration")
-        info(f"Use: devops admin repo-show {name}")
+
+    # Check for duplicate
+    exists = name in existing_repos
+    action = handle_duplicate("Repository", name, exists)
+
+    if action == "cancel":
+        info("Cancelled")
+        return
+    elif action == "skip":
+        info(f"Keeping existing repository '{name}'")
         return
 
     if not token and auto_fetch:
@@ -415,3 +427,121 @@ def edit_repository(
         success(f"Repository '{name}' updated")
     else:
         info("Changes discarded")
+
+
+def import_repositories(
+    file: str = typer.Option(..., "--file", "-f", help="Path to YAML file with repos"),
+    skip_existing: bool = typer.Option(
+        True,
+        "--skip-existing/--overwrite-existing",
+        help="Skip existing repos (default) or overwrite them",
+    ),
+):
+    """Import repositories from a YAML file."""
+    header("Import Repositories from YAML")
+
+    file_path = Path(file)
+
+    if not file_path.exists():
+        error(f"File not found: {file}")
+        info("Create a template with: devops admin repos-export-template --output repos.yaml")
+        return
+
+    info(f"Loading repos from: {file}")
+    console.print()
+
+    data = load_repos_yaml(file_path)
+
+    if not data:
+        error("Could not load YAML file")
+        return
+
+    is_valid, error_msg = validate_repos_yaml(data)
+    if not is_valid:
+        error(f"Validation failed: {error_msg}")
+        return
+
+    repos_to_import = data["repos"]
+    existing_repos = load_repos()
+
+    # Analyze what will be imported
+    new_repos = []
+    existing_list = []
+
+    for repo_name in repos_to_import:
+        if repo_name in existing_repos:
+            existing_list.append(repo_name)
+        else:
+            new_repos.append(repo_name)
+
+    info(f"Found {len(repos_to_import)} repos to import:")
+    for repo_name in repos_to_import:
+        status = "(new)" if repo_name in new_repos else "(exists - will skip)" if skip_existing else "(exists - will overwrite)"
+        console.print(f"  - {repo_name} {status}")
+
+    console.print()
+
+    if existing_list and skip_existing:
+        warning(f"Skipping {len(existing_list)} existing repos: {', '.join(existing_list)}")
+        console.print()
+
+    if not Confirm.ask("Proceed with import?", default=False):
+        info("Cancelled")
+        return
+
+    imported = 0
+    skipped = 0
+
+    for repo_name, repo_config in repos_to_import.items():
+        action = handle_duplicate_batch("Repository", repo_name, repo_name in existing_repos, skip_existing)
+
+        if action == "skip":
+            skipped += 1
+            continue
+
+        # Add timestamp
+        repo_config["added_at"] = datetime.now().isoformat()
+        existing_repos[repo_name] = repo_config
+        imported += 1
+        success(f"Imported: {repo_name}")
+
+    save_repos(existing_repos)
+
+    console.print()
+    info("Import Summary:")
+    info(f"  Imported: {imported} repos")
+    if skipped > 0:
+        info(f"  Skipped: {skipped} repos (already existed)")
+
+
+def export_repos_template(
+    output: str = typer.Option(
+        "repos-template.yaml", "--output", "-o", help="Output file path"
+    ),
+):
+    """Export a template YAML file for bulk repository registration."""
+    header("Export Repos Template")
+
+    output_path = Path(output)
+
+    if output_path.exists():
+        warning(f"File already exists: {output}")
+        if not Confirm.ask("Overwrite?"):
+            info("Cancelled")
+            return
+
+    template = get_repos_template()
+
+    try:
+        with open(output_path, "w") as f:
+            f.write(template)
+
+        success(f"Template exported to: {output}")
+        console.print()
+        info("Next steps:")
+        info(f"  1. Edit '{output}' with your repositories")
+        info(f"  2. Run: devops admin repos-import --file {output}")
+        console.print()
+
+    except IOError as e:
+        error(f"Failed to write template: {e}")

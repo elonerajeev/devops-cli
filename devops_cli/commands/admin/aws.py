@@ -33,6 +33,7 @@ from devops_cli.commands.admin.base import (
     info,
     header,
     create_table,
+    handle_duplicate,
 )
 
 app = typer.Typer()
@@ -61,6 +62,17 @@ def add_aws_role(
 
     if "roles" not in config:
         config["roles"] = {}
+
+    # Check for duplicate
+    exists = name in config.get("roles", {})
+    action = handle_duplicate("AWS Role", name, exists)
+
+    if action == "cancel":
+        info("Cancelled")
+        return
+    elif action == "skip":
+        info(f"Keeping existing AWS role '{name}'")
+        return
 
     config["roles"][name] = {
         "role_arn": role_arn,
