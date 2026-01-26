@@ -38,11 +38,11 @@ def _save_json(file_path: Path, data: Dict):
     # Write to a temporary file first for atomicity
     temp_file = file_path.with_suffix(".tmp")
     try:
-        with open(temp_file, "w") as f:
+        # Use os.open with O_CREAT and mode 0600 to ensure the file is created 
+        # with restricted permissions from the start.
+        fd = os.open(temp_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
             json.dump(data, f, indent=4)
-
-        # Set file permissions to 600 (-rw-------)
-        os.chmod(temp_file, stat.S_IRUSR | stat.S_IWUSR)
 
         # Atomic rename
         temp_file.replace(file_path)

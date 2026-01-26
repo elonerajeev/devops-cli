@@ -419,4 +419,43 @@ def main():
 
 
 if __name__ == "__main__":
-    app()
+    try:
+        app()
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Aborted by user.[/yellow]")
+        sys.exit(0)
+    except FileNotFoundError as e:
+        console.print()
+        console.print(Panel(
+            f"[red]Error:[/] File not found: [bold]{e.filename}[/]\n\n"
+            "This usually means the CLI has not been initialized or a configuration file is missing.",
+            title="[bold red]File Not Found[/bold red]",
+            border_style="red",
+            box=box.ROUNDED,
+        ))
+        sys.exit(1)
+    except PermissionError as e:
+        console.print()
+        console.print(Panel(
+            f"[red]Error:[/] Permission denied: [bold]{e.filename}[/]\n\n"
+            "The CLI does not have permission to access this file or directory.",
+            title="[bold red]Permission Denied[/bold red]",
+            border_style="red",
+            box=box.ROUNDED,
+        ))
+        sys.exit(1)
+    except Exception as e:
+        # For other unhandled exceptions, show a beautiful error panel
+        console.print()
+        console.print(Panel(
+            f"[red]An unexpected error occurred:[/]\n\n"
+            f"[bold white]{str(e)}[/bold white]\n\n"
+            f"[dim]Type: {type(e).__name__}[/dim]\n\n"
+            "If this persists, please run [cyan]devops doctor[/cyan] or report the issue.",
+            title="[bold red]Unexpected Error[/bold red]",
+            border_style="red",
+            box=box.ROUNDED,
+        ))
+        # In debug mode or for specific complex errors, we might want to see the traceback
+        # but for general use, the panel is much cleaner.
+        sys.exit(1)

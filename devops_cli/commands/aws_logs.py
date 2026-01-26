@@ -18,23 +18,12 @@ from devops_cli.utils.output import (
 )
 # Import utilities (moved from duplicated code)
 from devops_cli.utils.time_helpers import parse_time_range
-from devops_cli.utils.log_formatters import colorize_log_level
+from devops_cli.utils.log_formatters import colorize_log_level, mask_secrets
 from devops_cli.utils.aws_helpers import get_aws_session_from_credentials
+from devops_cli.utils.completion import complete_aws_role
 
 app = typer.Typer(help="AWS Logs - View CloudWatch logs securely")
 console = Console()
-
-
-# Try to import boto3
-try:
-    import boto3
-    from botocore.exceptions import ClientError, NoCredentialsError, ProfileNotFound
-
-    BOTO3_AVAILABLE = True
-except ImportError:
-    BOTO3_AVAILABLE = False
-
-
 
 
 # ==================== CloudWatch Commands ====================
@@ -57,9 +46,12 @@ def cloudwatch_logs(
     follow: bool = typer.Option(
         False, "--follow", "-F", help="Follow logs in real-time"
     ),
-    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
+    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region", autocompletion=complete_aws_role),
 ):
     """View CloudWatch logs."""
+    import boto3
+    from botocore.exceptions import ClientError
+    
     session = get_aws_session_from_credentials(region)
     logs_client = session.client("logs")
 
@@ -98,6 +90,7 @@ def _fetch_cloudwatch_logs(
     client, log_group, stream, filter_pattern, grep, start_timestamp, limit
 ):
     """Fetch CloudWatch logs."""
+    from botocore.exceptions import ClientError
     kwargs = {
         "logGroupName": log_group,
         "startTime": start_timestamp,
@@ -121,7 +114,7 @@ def _fetch_cloudwatch_logs(
 
         for event in events:
             timestamp = datetime.fromtimestamp(event["timestamp"] / 1000)
-            message = event["message"].strip()
+            message = mask_secrets(event["message"].strip())
 
             # Apply grep filter
             if grep and grep.lower() not in message.lower():
@@ -146,6 +139,7 @@ def _follow_cloudwatch_logs(
     client, log_group, stream, filter_pattern, grep, start_timestamp
 ):
     """Follow CloudWatch logs in real-time."""
+    from botocore.exceptions import ClientError
     info("Following logs (Ctrl+C to stop)...\n")
 
     last_timestamp = start_timestamp
@@ -175,7 +169,7 @@ def _follow_cloudwatch_logs(
 
                 seen_event_ids.add(event_id)
                 timestamp = datetime.fromtimestamp(event["timestamp"] / 1000)
-                message = event["message"].strip()
+                message = mask_secrets(event["message"].strip())
 
                 # Apply grep filter
                 if grep and grep.lower() not in message.lower():
@@ -204,9 +198,10 @@ def list_log_groups(
     prefix: Optional[str] = typer.Option(
         None, "--prefix", "-p", help="Filter by prefix"
     ),
-    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
+    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region", autocompletion=complete_aws_role),
 ):
     """List CloudWatch log groups."""
+    from botocore.exceptions import ClientError
     session = get_aws_session_from_credentials(region)
     logs_client = session.client("logs")
 
@@ -266,9 +261,10 @@ def list_log_streams(
     prefix: Optional[str] = typer.Option(
         None, "--prefix", "-p", help="Filter by prefix"
     ),
-    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
+    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region", autocompletion=complete_aws_role),
 ):
     """List log streams in a log group."""
+    from botocore.exceptions import ClientError
     session = get_aws_session_from_credentials(region)
     logs_client = session.client("logs")
 
@@ -330,9 +326,10 @@ def search_logs(
         None, "--groups", "-g", help="Comma-separated log groups"
     ),
     since: str = typer.Option("1h", "--since", help="Time range"),
-    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
+    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region", autocompletion=complete_aws_role),
 ):
     """Search across multiple log groups."""
+    from botocore.exceptions import ClientError
     session = get_aws_session_from_credentials(region)
     logs_client = session.client("logs")
 
@@ -403,9 +400,10 @@ def view_activity(
     ),
     user: Optional[str] = typer.Option(None, "--user", "-u", help="Filter by user"),
     since: str = typer.Option("24h", "--since", help="Time range"),
-    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
+    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region", autocompletion=complete_aws_role),
 ):
     """View AWS CloudTrail activity (audit logs)."""
+    from botocore.exceptions import ClientError
     session = get_aws_session_from_credentials(region)
 
     try:
@@ -469,9 +467,10 @@ def view_errors(
         None, "--app", "-a", help="App name (from your apps.yaml config)"
     ),
     since: str = typer.Option("6h", "--since", help="Time range"),
-    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
+    region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region", autocompletion=complete_aws_role),
 ):
     """View error logs from all applications."""
+    from botocore.exceptions import ClientError
     session = get_aws_session_from_credentials(region)
     logs_client = session.client("logs")
 

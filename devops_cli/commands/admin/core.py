@@ -324,6 +324,7 @@ def manage_templates(
                 "devops admin aws-import --file",
             ),
             "users": ("Bulk user registration", "devops admin users-import --file"),
+            "meetings": ("Daily team meetings", "devops admin meeting set"),
         }
 
         for tf in sorted(template_files):

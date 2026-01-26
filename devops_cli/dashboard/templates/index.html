@@ -258,48 +258,20 @@
 
                     <!-- Developer Tools -->
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                        <!-- CLI Command Shortcuts -->
+                        <!-- Daily Meetings -->
                         <div class="bg-gray-800/50 rounded-2xl p-6 border border-gray-700/50">
-                            <h3 class="text-lg font-semibold mb-4 flex items-center">
-                                <i class="fas fa-terminal text-primary mr-2"></i>
-                                Quick CLI Commands
-                            </h3>
-                            <div class="space-y-3">
-                                <div class="bg-gray-900/50 rounded-lg p-3 border border-gray-700/30 group hover:border-primary/50 transition-all cursor-pointer" onclick="copyCommand('devops app logs <app-name>')">
-                                    <div class="flex items-center justify-between">
-                                        <div class="flex-1">
-                                            <p class="text-xs text-gray-500 mb-1">View Application Logs</p>
-                                            <code class="text-sm text-green-400 font-mono">devops app logs &lt;app-name&gt;</code>
-                                        </div>
-                                        <i class="fas fa-copy text-gray-600 group-hover:text-primary ml-2"></i>
-                                    </div>
-                                </div>
-                                <div class="bg-gray-900/50 rounded-lg p-3 border border-gray-700/30 group hover:border-primary/50 transition-all cursor-pointer" onclick="copyCommand('devops ssh connect <server-name>')">
-                                    <div class="flex items-center justify-between">
-                                        <div class="flex-1">
-                                            <p class="text-xs text-gray-500 mb-1">SSH to Server</p>
-                                            <code class="text-sm text-green-400 font-mono">devops ssh connect &lt;server-name&gt;</code>
-                                        </div>
-                                        <i class="fas fa-copy text-gray-600 group-hover:text-primary ml-2"></i>
-                                    </div>
-                                </div>
-                                <div class="bg-gray-900/50 rounded-lg p-3 border border-gray-700/30 group hover:border-primary/50 transition-all cursor-pointer" onclick="copyCommand('devops health check <resource-name>')">
-                                    <div class="flex items-center justify-between">
-                                        <div class="flex-1">
-                                            <p class="text-xs text-gray-500 mb-1">Check Health Status</p>
-                                            <code class="text-sm text-green-400 font-mono">devops health check &lt;resource-name&gt;</code>
-                                        </div>
-                                        <i class="fas fa-copy text-gray-600 group-hover:text-primary ml-2"></i>
-                                    </div>
-                                </div>
-                                <div class="bg-gray-900/50 rounded-lg p-3 border border-gray-700/30 group hover:border-primary/50 transition-all cursor-pointer" onclick="copyCommand('devops git pr create')">
-                                    <div class="flex items-center justify-between">
-                                        <div class="flex-1">
-                                            <p class="text-xs text-gray-500 mb-1">Create Pull Request</p>
-                                            <code class="text-sm text-green-400 font-mono">devops git pr create</code>
-                                        </div>
-                                        <i class="fas fa-copy text-gray-600 group-hover:text-primary ml-2"></i>
-                                    </div>
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="text-lg font-semibold flex items-center">
+                                    <i class="fas fa-video text-primary mr-2"></i>
+                                    Daily Team Meetings
+                                </h3>
+                                <span class="text-xs text-gray-500" id="current-time-display"></span>
+                            </div>
+                            <div id="meetings-list" class="space-y-3">
+                                <!-- Meetings will be loaded here -->
+                                <div class="flex items-center justify-center py-8 text-gray-500">
+                                    <i class="fas fa-spinner fa-spin mr-2"></i>
+                                    Loading meetings...
                                 </div>
                             </div>
                         </div>
@@ -1020,5 +992,21 @@
 
     <!-- External JavaScript -->
     <script src="/static/js/dashboard.js"></script>
+    <script>
+        // Simple inline debug to catch early errors
+        window.addEventListener('load', () => {
+            console.log("DEBUG: Page fully loaded");
+            const meetingsList = document.getElementById('meetings-list');
+            console.log("DEBUG: meetings-list exists:", !!meetingsList);
+            
+            fetch('/api/meetings')
+                .then(r => {
+                    console.log("DEBUG: /api/meetings status:", r.status);
+                    return r.json();
+                })
+                .then(d => console.log("DEBUG: /api/meetings data:", d))
+                .catch(e => console.error("DEBUG: /api/meetings error:", e));
+        });
+    </script>
 </body>
 </html>

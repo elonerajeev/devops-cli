@@ -32,8 +32,9 @@ from devops_cli.utils.output import (
 )
 # Import utilities (moved from duplicated code)
 from devops_cli.utils.time_helpers import parse_time_range
-from devops_cli.utils.log_formatters import colorize_log_level
+from devops_cli.utils.log_formatters import colorize_log_level, mask_secrets
 from devops_cli.utils.aws_helpers import get_aws_session
+from devops_cli.utils.completion import complete_app_name
 
 app = typer.Typer(
     help="Application commands - View logs, health, and info for configured apps"
@@ -98,6 +99,92 @@ def list_apps(
     console.print(table)
     info("\nUse 'devops app logs <name>' to view logs")
     info("Use 'devops app info <name>' for details")
+    info("Use 'devops app restart <name>' to restart an application")
+
+
+# ==================== App Control ====================
+
+@app.command("restart")
+def app_restart(
+    name: str = typer.Argument(..., help="Application name", autocompletion=complete_app_name),
+):
+    """Restart an application."""
+    check_auth()
+    app_config = get_app_config(name)
+
+    if not app_config:
+        error(f"Application '{name}' not found")
+        return
+
+    app_type = app_config.get("type", "").lower()
+    identifier = app_config.get("identifier") or name
+    
+    header(f"Restarting {name} ({app_type})")
+    
+    import subprocess
+    
+    try:
+        if app_type == "docker":
+            info(f"Running: docker restart {identifier}")
+            subprocess.run(["docker", "restart", identifier], check=True)
+        elif app_type == "pm2":
+            info(f"Running: pm2 restart {identifier}")
+            subprocess.run(["pm2", "restart", identifier], check=True)
+        elif app_type == "kubernetes" or app_type == "k8s":
+            namespace = app_config.get("kubernetes", {}).get("namespace", "default")
+            deployment = app_config.get("kubernetes", {}).get("deployment", identifier)
+            info(f"Running: kubectl rollout restart deployment/{deployment} -n {namespace}")
+            subprocess.run(["kubectl", "rollout", "restart", f"deployment/{deployment}", "-n", namespace], check=True)
+        else:
+            error(f"Restart not supported for app type: {app_type}")
+            return
+            
+        success(f"Successfully triggered restart for {name}")
+    except subprocess.CalledProcessError as e:
+        error(f"Failed to restart {name}: {e}")
+    except FileNotFoundError as e:
+        error(f"Required tool not found: {e.filename}")
+
+
+@app.command("exec")
+def app_exec(
+    name: str = typer.Argument(..., help="Application name", autocompletion=complete_app_name),
+    command: str = typer.Option("/bin/sh", "--cmd", "-c", help="Command to run"),
+):
+    """Open an interactive shell in the application container/pod."""
+    check_auth()
+    app_config = get_app_config(name)
+
+    if not app_config:
+        error(f"Application '{name}' not found")
+        return
+
+    app_type = app_config.get("type", "").lower()
+    identifier = app_config.get("identifier") or name
+    
+    info(f"Opening shell in {name}...")
+    
+    import subprocess
+    
+    try:
+        if app_type == "docker":
+            subprocess.run(["docker", "exec", "-it", identifier, command])
+        elif app_type == "kubernetes" or app_type == "k8s":
+            namespace = app_config.get("kubernetes", {}).get("namespace", "default")
+            # Try to find a pod for this deployment
+            get_pod = subprocess.run(
+                ["kubectl", "get", "pods", "-n", namespace, "-l", f"app={identifier}", "-o", "jsonpath={.items[0].metadata.name}"],
+                capture_output=True, text=True
+            )
+            pod_name = get_pod.stdout.strip()
+            if not pod_name:
+                error(f"No active pods found for {name}")
+                return
+            subprocess.run(["kubectl", "exec", "-it", pod_name, "-n", namespace, "--", command])
+        else:
+            error(f"Exec not supported for app type: {app_type}")
+    except Exception as e:
+        error(f"Failed to execute: {e}")
 
 
 # ==================== App Info ====================
@@ -105,7 +192,7 @@ def list_apps(
 
 @app.command("info")
 def app_info(
-    name: str = typer.Argument(..., help="Application name"),
+    name: str = typer.Argument(..., help="Application name", autocompletion=complete_app_name),
 ):
     """Show detailed information about an application."""
     app_config = get_app_config(name)
@@ -174,7 +261,7 @@ def check_auth():
 
 @app.command("logs")
 def app_logs(
-    name: str = typer.Argument(..., help="Application name"),
+    name: str = typer.Argument(..., help="Application name", autocompletion=complete_app_name),
     since: str = typer.Option(
         "1h", "--since", "-s", help="Time range (e.g., 30m, 1h, 2d)"
     ),
@@ -289,7 +376,7 @@ def _fetch_cloudwatch(
 
         count = 0
         for event in events:
-            message = event["message"].strip()
+            message = mask_secrets(event["message"].strip())
 
             # Apply grep filter
             if grep and not re.search(grep, message, re.IGNORECASE):
@@ -338,7 +425,7 @@ def _follow_cloudwatch(client, log_group: str, grep: str, start_timestamp: int):
                     continue
 
                 seen_ids.add(event_id)
-                message = event["message"].strip()
+                message = mask_secrets(event["message"].strip())
 
                 # Apply grep filter
                 if grep and not re.search(grep, message, re.IGNORECASE):
@@ -370,11 +457,12 @@ def _follow_cloudwatch(client, log_group: str, grep: str, start_timestamp: int):
 
 @app.command("health")
 def app_health(
-    name: Optional[str] = typer.Argument(None, help="Application name (or check all)"),
+    name: Optional[str] = typer.Argument(None, help="Application name (or check all)", autocompletion=complete_app_name),
 ):
     """Check health of an application (or all apps)."""
-    import requests
-    import socket
+    import asyncio
+    from devops_cli.monitoring.checker import HealthChecker
+    from devops_cli.monitoring.config import AppConfig
 
     config = load_apps_config()
     apps = config.get("apps", {})
@@ -388,9 +476,38 @@ def app_health(
         if name not in apps:
             error(f"Application '{name}' not found")
             return
-        apps = {name: apps[name]}
+        apps_to_check = {name: apps[name]}
+    else:
+        apps_to_check = apps
 
     header("Application Health")
+
+    # Prepare configurations for HealthChecker
+    monitoring_apps = []
+    for app_name, app_config in apps_to_check.items():
+        # Map apps.yaml config to AppConfig dataclass
+        health_check = app_config.get("health", {})
+        
+        m_app = AppConfig(
+            name=app_name,
+            type=app_config.get("type", "custom"),
+            identifier=app_name,
+            host=health_check.get("host"),
+            port=health_check.get("port"),
+            health_endpoint=health_check.get("url")
+        )
+        monitoring_apps.append(m_app)
+
+    # Run checks using HealthChecker
+    checker = HealthChecker()
+    
+    async def run_checks():
+        results = []
+        for m_app in monitoring_apps:
+            results.append(await checker.check_app(m_app))
+        return results
+
+    results = asyncio.run(run_checks())
 
     table = create_table(
         "",
@@ -402,90 +519,13 @@ def app_health(
         ],
     )
 
-    for app_name, app_config in apps.items():
-        health_config = app_config.get("health", {})
-
-        if not health_config:
-            table.add_row(app_name, "[dim]No health check[/]", "-", "-")
-            continue
-
-        health_type = health_config.get("type")
-        result = {"healthy": False, "message": "Unknown"}
-
-        start = time.time()
-
-        if health_type == "http":
-            url = health_config.get("url")
-            expected = health_config.get("expected_status", 200)
-
-            try:
-                resp = requests.get(url, timeout=10)
-                latency = (time.time() - start) * 1000
-                result = {
-                    "healthy": resp.status_code == expected,
-                    "latency": latency,
-                    "message": f"HTTP {resp.status_code}",
-                }
-            except requests.Timeout:
-                result = {"healthy": False, "message": "Timeout"}
-            except requests.ConnectionError:
-                result = {"healthy": False, "message": "Connection refused"}
-            except Exception as e:
-                result = {"healthy": False, "message": str(e)[:30]}
-
-        elif health_type == "tcp":
-            host = health_config.get("host")
-            port = health_config.get("port")
-
-            try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(5)
-                sock.connect((host, port))
-                sock.close()
-                latency = (time.time() - start) * 1000
-                result = {"healthy": True, "latency": latency, "message": "Port open"}
-            except socket.timeout:
-                result = {"healthy": False, "message": "Timeout"}
-            except socket.error:
-                result = {"healthy": False, "message": "Port closed"}
-
-        elif health_type == "command":
-            import subprocess
-            import shlex
-
-            command = health_config.get("command")
-
-            try:
-                # Security: Use shlex.split() to safely parse command
-                cmd_list = shlex.split(command) if isinstance(command, str) else command
-                if not cmd_list:
-                    result = {"healthy": False, "message": "Empty command"}
-                else:
-                    proc = subprocess.run(cmd_list, capture_output=True, timeout=30)
-                    latency = (time.time() - start) * 1000
-                    result = {
-                        "healthy": proc.returncode == 0,
-                        "latency": latency,
-                        "message": (
-                            "OK" if proc.returncode == 0 else f"Exit {proc.returncode}"
-                        ),
-                    }
-            except subprocess.TimeoutExpired:
-                result = {"healthy": False, "message": "Timeout"}
-            except ValueError as e:
-                result = {"healthy": False, "message": f"Invalid cmd: {str(e)[:20]}"}
-            except FileNotFoundError:
-                result = {"healthy": False, "message": "Command not found"}
-            except Exception as e:
-                result = {"healthy": False, "message": str(e)[:30]}
-
-        status = "healthy" if result.get("healthy") else "unhealthy"
-        latency_str = (
-            f"{result.get('latency', 0):.0f}ms" if result.get("latency") else "-"
-        )
-
+    for res in results:
+        latency_str = f"{res.response_time_ms:.0f}ms" if res.response_time_ms is not None else "-"
         table.add_row(
-            app_name, status_badge(status), latency_str, result.get("message", "-")
+            res.name,
+            status_badge(res.status.value),
+            latency_str,
+            res.message
         )
 
     console.print(table)
@@ -496,7 +536,7 @@ def app_health(
 
 @app.command("errors")
 def app_errors(
-    name: Optional[str] = typer.Argument(None, help="Application name (or check all)"),
+    name: Optional[str] = typer.Argument(None, help="Application name (or check all)", autocompletion=complete_app_name),
     since: str = typer.Option("6h", "--since", "-s", help="Time range"),
 ):
     """View error logs from applications."""
@@ -554,7 +594,7 @@ def app_errors(
                 warning(f"Found {len(events)} errors")
                 for event in events[:10]:
                     timestamp = datetime.fromtimestamp(event["timestamp"] / 1000)
-                    message = event["message"].strip()[:150]
+                    message = mask_secrets(event["message"].strip())[:150]
                     console.print(
                         f"[dim]{timestamp.strftime('%H:%M:%S')}[/] [red]{message}[/]"
                     )
@@ -572,7 +612,7 @@ def app_errors(
 def app_search(
     pattern: str = typer.Argument(..., help="Search pattern"),
     name: Optional[str] = typer.Option(
-        None, "--app", "-a", help="Specific app (or search all)"
+        None, "--app", "-a", help="Specific app (or search all)", autocompletion=complete_app_name
     ),
     since: str = typer.Option("1h", "--since", "-s", help="Time range"),
 ):
@@ -628,7 +668,7 @@ def app_search(
 
                 for event in events[:10]:
                     timestamp = datetime.fromtimestamp(event["timestamp"] / 1000)
-                    message = event["message"].strip()[:120]
+                    message = mask_secrets(event["message"].strip())[:120]
                     console.print(f"[dim]{timestamp.strftime('%H:%M:%S')}[/] {message}")
 
                 total_matches += len(events)

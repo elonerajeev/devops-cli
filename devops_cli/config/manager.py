@@ -68,6 +68,7 @@ class ConfigManager:
         "aws": CONFIG_DIR / "aws.yaml",
         "teams": CONFIG_DIR / "teams.yaml",
         "repos": CONFIG_DIR / "repos.yaml",
+        "meetings": CONFIG_DIR / "meetings.yaml",
     }
 
     # Secrets directory
@@ -401,6 +402,59 @@ class ConfigManager:
         success = self._save_yaml(self.CONFIG_FILES["repos"], config)
         if success:
             self._invalidate_cache("repos")
+        return success
+
+    # ========================
+    # Meetings Configuration
+    # ========================
+
+    @property
+    def meetings(self) -> Dict[str, Any]:
+        """Get meetings configuration."""
+        cached = self._get_cached("meetings")
+        if cached is not None:
+            return cached
+
+        default = {
+            "meetings": {
+                "standup": {
+                    "name": "Daily Stand-up",
+                    "time": "10:00",
+                    "link": "",
+                    "description": "Morning team alignment"
+                },
+                "afternoon": {
+                    "name": "Afternoon Meet",
+                    "time": "16:00",
+                    "link": "",
+                    "description": "Mid-day sync"
+                },
+                "evening": {
+                    "name": "Evening Meet",
+                    "time": "18:30",
+                    "link": "",
+                    "description": "End of day wrap-up"
+                }
+            }
+        }
+        data = self._load_yaml(self.CONFIG_FILES["meetings"], default)
+        
+        # Merge with defaults to ensure all keys exist
+        if "meetings" not in data:
+            data["meetings"] = default["meetings"]
+        else:
+            for key, val in default["meetings"].items():
+                if key not in data["meetings"]:
+                    data["meetings"][key] = val
+
+        self._set_cached("meetings", data)
+        return data
+
+    def save_meetings(self, config: Dict[str, Any]) -> bool:
+        """Save meetings configuration."""
+        success = self._save_yaml(self.CONFIG_FILES["meetings"], config)
+        if success:
+            self._invalidate_cache("meetings")
         return success
 
     # ========================
