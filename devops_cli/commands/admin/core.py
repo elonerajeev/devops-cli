@@ -44,7 +44,81 @@ def admin_init():
     """Initialize admin configuration for a new organization."""
     header("DevOps CLI - Admin Setup")
 
-    ensure_admin_dirs()
+    # Check for existing config and warn
+    from devops_cli.config.manager import config_manager
+
+    current_config_dir = config_manager.CONFIG_DIR
+    local_dir = Path.cwd() / ".devops-cli"
+    global_dir = Path.home() / ".devops-cli"
+
+    # Determine current mode
+    if local_dir.exists():
+        current_mode = "local"
+        console.print(f"[yellow]Detected local config:[/] {local_dir}")
+    elif global_dir.exists():
+        current_mode = "centralized"
+        console.print(f"[yellow]Detected centralized config:[/] {global_dir}")
+    else:
+        current_mode = None
+
+    # Ask user to choose config strategy
+    console.print()
+    console.print("[bold]Configuration Management Strategy:[/bold]")
+    console.print("  [cyan][1][/cyan] Local - Config stored in current project directory (.devops-cli/)")
+    console.print("        Best for: Project-specific settings, team sharing via Git")
+    console.print("  [cyan][2][/cyan] Centralized - Config stored in home directory (~/.devops-cli/)")
+    console.print("        Best for: Personal settings, multi-project access")
+    console.print()
+
+    strategy_choice = Prompt.ask(
+        "Choose strategy",
+        choices=["1", "2"],
+        default="2" if current_mode != "local" else "1"
+    )
+
+    if strategy_choice == "1":
+        # Local config
+        config_dir = local_dir
+        strategy_name = "local"
+        if config_dir.exists():
+            if not Confirm.ask(f"Local config already exists at {config_dir}. Reinitialize?"):
+                info("Cancelled")
+                return
+    else:
+        # Centralized config
+        config_dir = global_dir
+        strategy_name = "centralized"
+        if config_dir.exists():
+            if not Confirm.ask(f"Centralized config already exists at {config_dir}. Reinitialize?"):
+                info("Cancelled")
+                return
+
+    # Create the chosen config directory
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "secrets").mkdir(parents=True, exist_ok=True)
+
+    # Update environment hint for this session
+    import os
+    os.environ["DEVOPS_CONFIG_DIR"] = str(config_dir)
+
+    # Clear and reinitialize config manager cache
+    config_manager.CONFIG_DIR = config_dir
+    config_manager.SECRETS_DIR = config_dir / "secrets"
+    config_manager.CONFIG_FILES = {
+        "global": config_dir / "config.yaml",
+        "apps": config_dir / "apps.yaml",
+        "servers": config_dir / "servers.yaml",
+        "websites": config_dir / "websites.yaml",
+        "aws": config_dir / "aws.yaml",
+        "teams": config_dir / "teams.yaml",
+        "repos": config_dir / "repos.yaml",
+        "meetings": config_dir / "meetings.yaml",
+    }
+    config_manager.clear_cache()
+
+    console.print()
+    info(f"Using {strategy_name} configuration at: {config_dir}")
+    console.print()
 
     org_name = Prompt.ask("Organization/Company name")
     aws_region = Prompt.ask("Default AWS region", default="us-east-1")
@@ -89,11 +163,69 @@ def admin_init():
     save_teams_config(teams_config)
 
     success(f"Admin configuration initialized for '{org_name}'")
-    info(f"\nConfig directory: {ADMIN_CONFIG_DIR}")
+    info(f"\nConfig strategy: {strategy_name}")
+    info(f"Config directory: {config_dir}")
+
+    if strategy_name == "local":
+        warning("\nNote: Local config is project-specific.")
+        info("  - Add .devops-cli/ to .gitignore if it contains secrets")
+        info("  - Or commit it to share config with team members")
+    else:
+        info("\nNote: Centralized config is shared across all projects.")
+        info("  - Other users on this machine have separate configs")
+
     info("\nNext steps:")
-    info("  1. Add AWS role: devops admin aws add-role")
-    info("  2. Add an app:   devops admin app add")
-    info("  3. Add a server: devops admin server add")
+    info("  1. Add AWS role: devops admin aws-add-role")
+    info("  2. Add an app:   devops admin app-add")
+    info("  3. Add a server: devops admin server-add")
+
+
+# ==================== Config Mode ====================
+
+
+def config_mode():
+    """Show current configuration mode and path."""
+    from devops_cli.config.manager import config_manager
+
+    header("Configuration Mode")
+
+    config_dir = config_manager.CONFIG_DIR
+    local_dir = Path.cwd() / ".devops-cli"
+    global_dir = Path.home() / ".devops-cli"
+
+    # Determine active mode
+    if str(config_dir) == str(local_dir):
+        mode = "LOCAL"
+        mode_color = "cyan"
+        mode_desc = "Project-specific configuration"
+    elif str(config_dir) == str(global_dir):
+        mode = "CENTRALIZED"
+        mode_color = "green"
+        mode_desc = "User-wide configuration"
+    else:
+        mode = "CUSTOM"
+        mode_color = "yellow"
+        mode_desc = "Custom path via DEVOPS_CONFIG_DIR"
+
+    console.print(f"[bold]Mode:[/] [{mode_color}]{mode}[/{mode_color}]")
+    console.print(f"[bold]Description:[/] {mode_desc}")
+    console.print(f"[bold]Config Path:[/] {config_dir}")
+    console.print()
+
+    # Check if initialized
+    if config_manager.is_initialized():
+        org = config_manager.get_organization()
+        console.print(f"[green]✓[/] Initialized for: {org}")
+    else:
+        console.print("[yellow]![/] Not initialized. Run: devops admin init")
+
+    console.print()
+
+    # Show detection info
+    console.print("[dim]Detection Priority:[/]")
+    console.print(f"  1. DEVOPS_CONFIG_DIR env: {os.environ.get('DEVOPS_CONFIG_DIR', '(not set)')}")
+    console.print(f"  2. Local (.devops-cli/): {'[green]exists[/]' if local_dir.exists() else '[dim]not found[/]'}")
+    console.print(f"  3. Centralized (~/.devops-cli/): {'[green]exists[/]' if global_dir.exists() else '[dim]not found[/]'}")
 
 
 # ==================== Export/Import ====================

@@ -57,6 +57,7 @@ def admin_callback(ctx: typer.Context):
 
 # Init
 app.command("init")(core_module.admin_init)
+app.command("config-mode")(core_module.config_mode)
 
 # Apps
 app.command("app-add")(apps_module.add_app)
