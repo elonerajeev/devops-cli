@@ -25,6 +25,7 @@ from devops_cli.utils.output import (
     status_badge,
 )
 from devops_cli.monitoring.checker import HealthChecker, WebsiteConfig, HealthStatus
+from devops_cli.utils.completion import complete_website_name
 
 app = typer.Typer(
     help="Website commands - List, info, and health for configured websites"
@@ -89,7 +90,7 @@ def list_websites():
 
 @app.command("info")
 def website_info(
-    name: str = typer.Argument(..., help="Website name"),
+    name: str = typer.Argument(..., help="Website name", autocompletion=complete_website_name),
 ):
     """Show detailed information about a website."""
     website = get_website_config(name)
@@ -106,7 +107,7 @@ def website_info(
 
 @app.command("health")
 def website_health(
-    name: str = typer.Argument(..., help="Website name"),
+    name: str = typer.Argument(..., help="Website name", autocompletion=complete_website_name),
 ):
     """Check the health of a specific website."""
     website_config_data = get_website_config(name)

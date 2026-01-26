@@ -220,6 +220,7 @@ class ConfigValidator:
             "servers": cls.has_servers(),
             "aws_roles": cls.has_aws_roles(),
             "monitoring": monitoring_count > 0,
+            "meetings": len(cm.meetings.get("meetings", {})) > 0,
         }
 
         # Count items
@@ -229,6 +230,7 @@ class ConfigValidator:
             "servers": len(cm.get_all_server_names()),
             "aws_roles": len(cm.aws.get("roles", {})),
             "monitoring_resources": monitoring_count,
+            "meetings": len(cm.meetings.get("meetings", {})),
         }
 
         return summary

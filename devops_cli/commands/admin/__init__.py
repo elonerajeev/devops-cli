@@ -41,6 +41,7 @@ from devops_cli.commands.admin import aws as aws_module
 from devops_cli.commands.admin import users as users_module
 from devops_cli.commands.admin import repos as repos_module
 from devops_cli.commands.admin import core as core_module
+from devops_cli.commands.admin import meetings as meetings_module
 
 # Create main admin app
 app = typer.Typer(help="Admin commands for Cloud Engineers to configure the CLI")
@@ -122,6 +123,9 @@ app.command("repo-show")(repos_module.show_repository)
 app.command("repo-remove")(repos_module.remove_repository)
 app.command("repo-refresh")(repos_module.refresh_repository)
 app.command("repo-edit")(repos_module.edit_repository)
+
+# Meeting Management
+app.add_typer(meetings_module.app, name="meeting", help="Manage daily meeting links")
 
 # Export/Import
 app.command("export")(core_module.export_config)

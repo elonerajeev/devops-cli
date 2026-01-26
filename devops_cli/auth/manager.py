@@ -226,10 +226,14 @@ class AuthManager:
     # ==================== Internal Methods ====================
 
     def _save_current_session(self, token: str):
-        """Save session token to local file."""
+        """Save session token to local file securely."""
         session_file = AUTH_DIR / ".session"
-        session_file.write_text(token)
-        os.chmod(session_file, 0o600)
+        
+        # Use os.open with O_CREAT | O_WRONLY | O_TRUNC and mode 0600
+        # to ensure the file is created with restricted permissions from the start.
+        fd = os.open(session_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w') as f:
+            f.write(token)
 
     def _get_current_session_token(self) -> Optional[str]:
         """Get current session token."""

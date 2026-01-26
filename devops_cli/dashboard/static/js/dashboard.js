@@ -105,9 +105,92 @@
             loadConfigStatus();
             loadMonitoring();
             loadRecentActivityFeed();
+            loadMeetings(); // Load meetings
             loadInfrastructureForSearch(); // Refresh search data
             const activeSection = document.querySelector('.sidebar-item.active')?.dataset.section;
             if (activeSection) showSection(activeSection);
+        }
+
+        // Load daily meetings
+        async function loadMeetings() {
+            const list = document.getElementById('meetings-list');
+            console.log("DEBUG: loadMeetings called");
+            
+            try {
+                const response = await fetch('/api/meetings');
+                console.log("DEBUG: fetch /api/meetings response status:", response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                console.log("DEBUG: meetings data received:", data);
+
+                if (!list) {
+                    console.error("DEBUG: meetings-list element not found in DOM");
+                    return;
+                }
+
+                if (!data.meetings || data.meetings.length === 0) {
+                    list.innerHTML = '<div class="text-center py-8 text-gray-500 text-sm">No meetings scheduled</div>';
+                    return;
+                }
+
+                list.innerHTML = data.meetings.map(m => {
+                    const isConfigured = m.link && m.link.trim() !== "";
+                    const linkColor = isConfigured ? 'text-primary' : 'text-gray-600';
+                    const hoverClass = isConfigured ? 'hover:border-primary/50 cursor-pointer' : 'opacity-60 grayscale cursor-not-allowed';
+                    const onclick = isConfigured ? `onclick="window.open('${m.link}', '_blank')"` : '';
+                    
+                    // Determine if the meeting is happening soon or now
+                    const now = new Date();
+                    let statusBadge = '';
+                    
+                    try {
+                        if (m.time && m.time.includes(':')) {
+                            const [hours, minutes] = m.time.split(':').map(Number);
+                            const meetTime = new Date();
+                            meetTime.setHours(hours, minutes, 0);
+                            
+                            const diffMs = meetTime - now;
+                            const diffMins = Math.round(diffMs / 60000);
+                            
+                            if (diffMins > 0 && diffMins <= 15) {
+                                statusBadge = '<span class="ml-2 px-2 py-0.5 bg-warning/20 text-warning text-[10px] rounded-full animate-pulse">STARTING SOON</span>';
+                            } else if (diffMins <= 0 && diffMins >= -45) {
+                                statusBadge = '<span class="ml-2 px-2 py-0.5 bg-danger/20 text-danger text-[10px] rounded-full status-pulse">IN PROGRESS</span>';
+                            }
+                        }
+                    } catch (e) {
+                        console.warn(`DEBUG: Error calculating meeting status for ${m.name}:`, e);
+                    }
+
+                    return `
+                        <div class="bg-gray-900/50 rounded-lg p-3 border border-gray-700/30 group transition-all ${hoverClass}" ${onclick}>
+                            <div class="flex items-center justify-between">
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center">
+                                        <p class="text-xs text-gray-500 mb-1">${m.time || '--:--'} • ${escapeHtml(m.name || 'Meeting')}</p>
+                                        ${statusBadge}
+                                    </div>
+                                    <div class="flex items-center space-x-2">
+                                        <i class="fas fa-video ${linkColor} text-xs"></i>
+                                        <span class="text-sm font-mono truncate text-gray-300">${isConfigured ? escapeHtml(m.link) : 'Link not configured'}</span>
+                                    </div>
+                                </div>
+                                ${isConfigured ? '<i class="fas fa-external-link-alt text-gray-600 group-hover:text-primary ml-2 text-xs"></i>' : ''}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+            } catch (error) {
+                console.error('Error loading meetings:', error);
+                if (list) {
+                    list.innerHTML = `<div class="text-center py-8 text-danger text-sm">Failed to load meetings: ${error.message}</div>`;
+                }
+            }
         }
 
         // Copy CLI command to clipboard
@@ -639,9 +722,12 @@
                 // Render repos
                 const list = document.getElementById('repos-list');
                 const repos = data.repos || [];
+                // Use the org from the response or fallback to data.org
+                const orgName = data.org || infraSearchCache.org || 'default';
+                
                 if (repos.length > 0) {
                     list.innerHTML = repos.map(r => `
-                        <div class="relative group bg-gray-700/30 rounded-xl border border-gray-600/30 hover:border-primary/50 transition-all repo-card" data-owner="${data.org}" data-repo="${r.name}">
+                        <div class="relative group bg-gray-700/30 rounded-xl border border-gray-600/30 hover:border-primary/50 transition-all repo-card" data-owner="${escapeHtml(orgName)}" data-repo="${r.name}">
                             <a href="${r.url}" target="_blank" class="block p-4">
                                 <div class="flex items-start justify-between mb-2">
                                     <h4 class="font-medium text-white flex items-center">
@@ -1020,9 +1106,10 @@
             list.innerHTML = html || '<p class="text-gray-500 text-center py-8">No alerts found for selected filters</p>';
         }
 
+        // Load security events
         async function loadSecurityEvents() {
             try {
-                const response = await fetch('/api/github/security-events');
+                const response = await fetch('/api/security/events');
                 const data = await response.json();
                 const events = data.events || [];
                 
@@ -1162,6 +1249,7 @@
 
         async function loadLogSources() {
             try {
+                console.log("DEBUG: loadLogSources called");
                 const appsResponse = await fetch('/api/apps');
                 const appsData = await appsResponse.json();
 
@@ -1169,18 +1257,20 @@
                 const serversData = await serversResponse.json();
 
                 const sources = document.getElementById('log-sources');
+                if (!sources) return;
+                
                 let html = '';
 
                 // Apps
                 if (appsData.apps && appsData.apps.length > 0) {
                     html += '<p class="text-xs text-gray-500 uppercase mb-2">Applications</p>';
                     html += appsData.apps.map(app => `
-                        <button onclick="loadAppLogs('${app.name}')" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-700/50 transition-colors flex items-center justify-between group log-source-btn" data-source="app-${app.name}">
+                        <button onclick="loadAppLogs('${escapeHtml(app.name)}')" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-700/50 transition-colors flex items-center justify-between group log-source-btn" data-source="app-${escapeHtml(app.name)}">
                             <span class="flex items-center">
                                 <i class="fas fa-cube text-accent mr-2"></i>
-                                ${app.name}
+                                ${escapeHtml(app.name)}
                             </span>
-                            <span class="text-xs text-gray-500">${app.type}</span>
+                            <span class="text-xs text-gray-500">${escapeHtml(app.type)}</span>
                         </button>
                     `).join('');
                 }
@@ -1189,17 +1279,17 @@
                 if (serversData.servers && serversData.servers.length > 0) {
                     html += '<p class="text-xs text-gray-500 uppercase mb-2 mt-4">Servers</p>';
                     html += serversData.servers.map(server => `
-                        <button onclick="loadServerLogs('${server.name}')" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-700/50 transition-colors flex items-center justify-between group log-source-btn" data-source="server-${server.name}">
+                        <button onclick="loadServerLogs('${escapeHtml(server.name)}')" class="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-700/50 transition-colors flex items-center justify-between group log-source-btn" data-source="server-${escapeHtml(server.name)}">
                             <span class="flex items-center">
                                 <i class="fas fa-server text-warning mr-2"></i>
-                                ${server.name}
+                                ${escapeHtml(server.name)}
                             </span>
-                            <span class="text-xs text-gray-500">${server.host}</span>
+                            <span class="text-xs text-gray-500">${escapeHtml(server.host)}</span>
                         </button>
                     `).join('');
                 }
 
-                sources.innerHTML = html || '<p class="text-gray-500 text-sm">No log sources configured</p>';
+                sources.innerHTML = html || '<p class="text-gray-500 text-sm p-4">No log sources configured</p>';
             } catch (error) {
                 console.error('Error loading log sources:', error);
             }
@@ -1986,7 +2076,7 @@
                     fetch('/api/apps').catch(() => ({json: () => ({apps: []})})),
                     fetch('/api/servers').catch(() => ({json: () => ({servers: []})})),
                     fetch('/api/websites').catch(() => ({json: () => ({websites: []})})),
-                    fetch('/api/repos/status').catch(() => ({json: () => ({repos: []})}))
+                    fetch('/api/github/repos').catch(() => ({json: () => ({repos: []})}))
                 ]);
 
                 const [apps, servers, websites, repos] = await Promise.all([
@@ -2180,15 +2270,35 @@
         });
 
         // Initialize on page load
-        document.addEventListener('DOMContentLoaded', () => {
-            loadConfigStatus();
-            loadMonitoring();
-            loadRecentActivityFeed();
-            loadSecurityEvents();
-            startSecurityEventStream();
-            startRealtimeUpdates(); // Enabled real-time updates
-            initHealthTrendChart();
-            loadInfrastructureForSearch(); // Pre-load search data for instant search
+        document.addEventListener('DOMContentLoaded', async () => {
+            console.log("DEBUG: DOMContentLoaded triggered");
+            
+            // Minimal sequential loading for the Overview page only
+            const loaders = [
+                { name: 'Config Status', fn: loadConfigStatus },
+                { name: 'Monitoring', fn: loadMonitoring },
+                { name: 'Recent Activity', fn: loadRecentActivityFeed },
+                { name: 'Meetings', fn: loadMeetings }
+            ];
+
+            for (const loader of loaders) {
+                try {
+                    console.log(`DEBUG: Running loader: ${loader.name}`);
+                    await loader.fn();
+                } catch (e) {
+                    console.error(`DEBUG: Loader ${loader.name} failed:`, e);
+                }
+            }
+
+            try {
+                // Secondary initialization - No GitHub/Security here
+                startRealtimeUpdates();
+                initHealthTrendChart();
+                // Delay search infrastructure loading to improve perceived performance
+                setTimeout(loadInfrastructureForSearch, 2000);
+            } catch (e) {
+                console.error("DEBUG: Secondary initialization failed:", e);
+            }
         });
 
         let healthTrendChart = null;

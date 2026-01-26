@@ -4,14 +4,16 @@ import yaml
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 
-# Admin config paths (moved from admin.py)
-ADMIN_CONFIG_DIR = Path.home() / ".devops-cli"
-APPS_CONFIG_FILE = ADMIN_CONFIG_DIR / "apps.yaml"
-SERVERS_CONFIG_FILE = ADMIN_CONFIG_DIR / "servers.yaml"
-WEBSITES_CONFIG_FILE = ADMIN_CONFIG_DIR / "websites.yaml"
-AWS_CONFIG_FILE = ADMIN_CONFIG_DIR / "aws.yaml"
-TEAMS_CONFIG_FILE = ADMIN_CONFIG_DIR / "teams.yaml"
-SECRETS_DIR = ADMIN_CONFIG_DIR / "secrets"  # Also moved here
+from devops_cli.config.manager import config_manager
+
+# Admin config paths
+ADMIN_CONFIG_DIR = config_manager.CONFIG_DIR
+APPS_CONFIG_FILE = config_manager.CONFIG_FILES["apps"]
+SERVERS_CONFIG_FILE = config_manager.CONFIG_FILES["servers"]
+WEBSITES_CONFIG_FILE = config_manager.CONFIG_FILES["websites"]
+AWS_CONFIG_FILE = config_manager.CONFIG_FILES["aws"]
+TEAMS_CONFIG_FILE = config_manager.CONFIG_FILES["teams"]
+SECRETS_DIR = config_manager.SECRETS_DIR
 
 # AWS credentials YAML template file (input only - not stored by CLI)
 AWS_CREDENTIALS_YAML_FILE = "aws-credentials.yaml"
@@ -19,86 +21,72 @@ AWS_CREDENTIALS_YAML_FILE = "aws-credentials.yaml"
 
 def ensure_admin_dirs():
     """Ensure admin config directories exist."""
-    ADMIN_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    SECRETS_DIR.mkdir(parents=True, exist_ok=True)
+    config_manager._ensure_dirs()
 
 
 def _load_yaml_file(file_path: Path) -> Dict[str, Any]:
     """Helper to load a YAML file, returning empty dict if not found or invalid."""
-    if file_path.exists():
-        try:
-            with open(file_path) as f:
-                return yaml.safe_load(f) or {}
-        except yaml.YAMLError:
-            # Handle malformed YAML gracefully
-            return {}
-    return {}
+    return config_manager._load_yaml(file_path)
 
 
 def _save_yaml_file(file_path: Path, config: Dict[str, Any]):
     """Helper to save a config dict to a YAML file."""
-    ensure_admin_dirs()  # Ensure dirs exist before saving
-    with open(file_path, "w") as f:
-        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+    config_manager._save_yaml(file_path, config)
 
 
 # --- Application Configuration ---
 def load_apps_config() -> Dict[str, Any]:
     """Load applications configuration."""
-    return _load_yaml_file(APPS_CONFIG_FILE)
+    return config_manager.apps
 
 
 def save_apps_config(config: Dict[str, Any]):
     """Save applications configuration."""
-    _save_yaml_file(APPS_CONFIG_FILE, config)
+    config_manager.save_apps(config)
 
 
 # --- Server Configuration ---
 def load_servers_config() -> Dict[str, Any]:
     """Load servers configuration."""
-    return _load_yaml_file(SERVERS_CONFIG_FILE)
+    return config_manager.servers
 
 
 def save_servers_config(config: Dict[str, Any]):
     """Save servers configuration."""
-    _save_yaml_file(SERVERS_CONFIG_FILE, config)
+    config_manager.save_servers(config)
 
 
 # --- Website Configuration ---
 def load_websites_config() -> Dict[str, Any]:
     """Load websites configuration."""
-    # Note: websites.py has its own load_websites_config that imports from admin.py,
-    # then load_admin_websites_config imports from config.loader.
-    # To avoid circular dependency, websites.py will directly use _load_yaml_file for now
-    # or it needs to be redesigned. For centralized loader, this is the canonical one.
-    return _load_yaml_file(WEBSITES_CONFIG_FILE)
+    return config_manager.websites
 
 
 def save_websites_config(config: Dict[str, Any]):
     """Save websites configuration."""
-    _save_yaml_file(WEBSITES_CONFIG_FILE, config)
+    config_manager.save_websites(config)
 
 
 # --- AWS Configuration ---
 def load_aws_config() -> Dict[str, Any]:
     """Load AWS configuration."""
-    return _load_yaml_file(AWS_CONFIG_FILE)
+    return config_manager.aws
 
 
 def save_aws_config(config: Dict[str, Any]):
     """Save AWS configuration."""
-    _save_yaml_file(AWS_CONFIG_FILE, config)
+    config_manager.save_aws(config)
 
 
 # --- Team Configuration ---
 def load_teams_config() -> Dict[str, Any]:
     """Load teams configuration."""
-    return _load_yaml_file(TEAMS_CONFIG_FILE)
+    return config_manager.teams
 
 
 def save_teams_config(config: Dict[str, Any]):
     """Save teams configuration."""
-    _save_yaml_file(TEAMS_CONFIG_FILE, config)
+    config_manager.save_teams(config)
 
 
 # --- Global Config (from settings.py) ---

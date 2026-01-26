@@ -1,0 +1,25 @@
+# Daily Meetings Configuration
+# ===========================
+# Define your daily team syncs and video call links.
+# These will be displayed on the dashboard for all employees.
+#
+# Usage:
+#   devops admin meeting set standup --time 10:00 --link https://meet.google.com/xxx
+#
+
+meetings:
+  standup:
+    name: Daily Stand-up
+    time: "10:00"
+    link: ""
+    description: Morning team alignment
+  afternoon:
+    name: Afternoon Meet
+    time: "16:00"
+    link: ""
+    description: Mid-day sync
+  evening:
+    name: Evening Meet
+    time: "18:30"
+    link: ""
+    description: End of day wrap-up

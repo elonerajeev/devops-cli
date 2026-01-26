@@ -20,6 +20,7 @@ from devops_cli.utils.output import (
     create_table,
     status_badge,
 )
+from devops_cli.utils.completion import complete_server_name, complete_server_tag
 
 app = typer.Typer(help="SSH and server management commands")
 console = Console()
@@ -96,7 +97,7 @@ def run_remote_command(server_name: str, server_config: dict, command: str) -> d
 
 @app.command("list")
 def list_servers(
-    tag: Optional[str] = typer.Option(None, "--tag", "-t", help="Filter by tag"),
+    tag: Optional[str] = typer.Option(None, "--tag", "-t", help="Filter by tag", autocompletion=complete_server_tag),
 ):
     """List configured servers."""
     config = load_servers_config()
@@ -157,7 +158,7 @@ servers:
 
 @app.command("connect")
 def connect_server(
-    server: str = typer.Argument(..., help="Server name from config"),
+    server: str = typer.Argument(..., help="Server name from config", autocompletion=complete_server_name),
 ):
     """Open interactive SSH session to a server."""
     server_config = get_server_config(server)
@@ -193,9 +194,9 @@ def connect_server(
 @app.command("run")
 def run_command(
     command: str = typer.Argument(..., help="Command to run"),
-    server: Optional[str] = typer.Option(None, "--server", "-s", help="Server name"),
+    server: Optional[str] = typer.Option(None, "--server", "-s", help="Server name", autocompletion=complete_server_name),
     tag: Optional[str] = typer.Option(
-        None, "--tag", "-t", help="Run on all servers with tag"
+        None, "--tag", "-t", help="Run on all servers with tag", autocompletion=complete_server_tag
     ),
     parallel: bool = typer.Option(
         True, "--parallel/--sequential", help="Run in parallel"
@@ -279,9 +280,9 @@ def _print_result(result: dict):
 def upload_file(
     local_path: str = typer.Argument(..., help="Local file path"),
     remote_path: str = typer.Argument(..., help="Remote destination path"),
-    server: Optional[str] = typer.Option(None, "--server", "-s", help="Server name"),
+    server: Optional[str] = typer.Option(None, "--server", "-s", help="Server name", autocompletion=complete_server_name),
     tag: Optional[str] = typer.Option(
-        None, "--tag", "-t", help="Upload to all servers with tag"
+        None, "--tag", "-t", help="Upload to all servers with tag", autocompletion=complete_server_tag
     ),
 ):
     """Upload a file to remote server(s)."""
@@ -331,7 +332,7 @@ def upload_file(
 def download_file(
     remote_path: str = typer.Argument(..., help="Remote file path"),
     local_path: str = typer.Argument(..., help="Local destination path"),
-    server: str = typer.Option(..., "--server", "-s", help="Server name"),
+    server: str = typer.Option(..., "--server", "-s", help="Server name", autocompletion=complete_server_name),
 ):
     """Download a file from remote server."""
     server_config = get_server_config(server)
@@ -362,7 +363,7 @@ def download_file(
 
 @app.command("ping")
 def ping_servers(
-    tag: Optional[str] = typer.Option(None, "--tag", "-t", help="Filter by tag"),
+    tag: Optional[str] = typer.Option(None, "--tag", "-t", help="Filter by tag", autocompletion=complete_server_tag),
 ):
     """Check connectivity to all configured servers."""
     config = load_servers_config()
@@ -409,9 +410,9 @@ def ping_servers(
 @app.command("exec")
 def exec_script(
     script: str = typer.Argument(..., help="Local script file to execute"),
-    server: Optional[str] = typer.Option(None, "--server", "-s", help="Server name"),
+    server: Optional[str] = typer.Option(None, "--server", "-s", help="Server name", autocompletion=complete_server_name),
     tag: Optional[str] = typer.Option(
-        None, "--tag", "-t", help="Run on all servers with tag"
+        None, "--tag", "-t", help="Run on all servers with tag", autocompletion=complete_server_tag
     ),
 ):
     """Execute a local script on remote server(s)."""
@@ -496,7 +497,7 @@ def exec_script(
 
 @app.command("copy-id")
 def copy_ssh_key(
-    server: str = typer.Argument(..., help="Server name"),
+    server: str = typer.Argument(..., help="Server name", autocompletion=complete_server_name),
     key: str = typer.Option(
         "~/.ssh/id_rsa.pub", "--key", "-k", help="Public key to copy"
     ),
