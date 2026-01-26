@@ -1,6 +1,7 @@
 """AWS Logs - CloudWatch log viewing for developers."""
 
 import time
+from datetime import datetime
 from typing import Optional
 
 import typer
@@ -34,76 +35,6 @@ except ImportError:
     BOTO3_AVAILABLE = False
 
 
-def get_aws_session(region: Optional[str] = None):
-    """
-    Get AWS session using stored credentials.
-
-    Does NOT use ~/.aws/credentials or environment variables.
-    Only uses credentials configured via: devops admin aws-configure
-    """
-    if not BOTO3_AVAILABLE:
-        error("boto3 is not installed. Run: pip install boto3")
-        raise typer.Exit(1)
-
-    # Load credentials from secure storage
-    creds = load_aws_credentials()
-
-    if not creds:
-        error("AWS credentials not configured")
-        info("Ask your admin to configure AWS access with:")
-        info("  devops admin aws-configure")
-        raise typer.Exit(1)
-
-    # Use explicit credentials (NOT boto3's default credential chain)
-    try:
-        session = boto3.Session(
-            aws_access_key_id=creds["access_key"],
-            aws_secret_access_key=creds["secret_key"],
-            region_name=region or creds["region"],
-        )
-        return session
-    except Exception as e:
-        error(f"Failed to create AWS session: {e}")
-        info("Contact your admin to reconfigure AWS credentials")
-        raise typer.Exit(1)
-
-
-def parse_time_range(time_str: str) -> datetime:
-    """Parse time string like '1h', '30m', '2d' to datetime."""
-    now = datetime.utcnow()
-
-    if time_str.endswith("m"):
-        minutes = int(time_str[:-1])
-        return now - timedelta(minutes=minutes)
-    elif time_str.endswith("h"):
-        hours = int(time_str[:-1])
-        return now - timedelta(hours=hours)
-    elif time_str.endswith("d"):
-        days = int(time_str[:-1])
-        return now - timedelta(days=days)
-    else:
-        # Try parsing as ISO format
-        try:
-            return datetime.fromisoformat(time_str)
-        except ValueError:
-            return now - timedelta(hours=1)
-
-
-def colorize_log_level(message: str) -> Text:
-    """Colorize log message based on level."""
-    text = Text(message)
-
-    # Common log level patterns
-    if re.search(r"\b(ERROR|FATAL|CRITICAL)\b", message, re.IGNORECASE):
-        text.stylize("bold red")
-    elif re.search(r"\bWARN(ING)?\b", message, re.IGNORECASE):
-        text.stylize("yellow")
-    elif re.search(r"\bINFO\b", message, re.IGNORECASE):
-        text.stylize("green")
-    elif re.search(r"\bDEBUG\b", message, re.IGNORECASE):
-        text.stylize("dim")
-
-    return text
 
 
 # ==================== CloudWatch Commands ====================
@@ -129,7 +60,7 @@ def cloudwatch_logs(
     region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
 ):
     """View CloudWatch logs."""
-    session = get_aws_session(region)
+    session = get_aws_session_from_credentials(region)
     logs_client = session.client("logs")
 
     start_time = parse_time_range(since)
@@ -276,7 +207,7 @@ def list_log_groups(
     region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
 ):
     """List CloudWatch log groups."""
-    session = get_aws_session(region)
+    session = get_aws_session_from_credentials(region)
     logs_client = session.client("logs")
 
     header("CloudWatch Log Groups")
@@ -338,7 +269,7 @@ def list_log_streams(
     region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
 ):
     """List log streams in a log group."""
-    session = get_aws_session(region)
+    session = get_aws_session_from_credentials(region)
     logs_client = session.client("logs")
 
     header(f"Log Streams: {log_group}")
@@ -402,7 +333,7 @@ def search_logs(
     region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
 ):
     """Search across multiple log groups."""
-    session = get_aws_session(region)
+    session = get_aws_session_from_credentials(region)
     logs_client = session.client("logs")
 
     config = load_config()
@@ -475,7 +406,7 @@ def view_activity(
     region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
 ):
     """View AWS CloudTrail activity (audit logs)."""
-    session = get_aws_session(region)
+    session = get_aws_session_from_credentials(region)
 
     try:
         cloudtrail = session.client("cloudtrail")
@@ -541,7 +472,7 @@ def view_errors(
     region: Optional[str] = typer.Option(None, "--region", "-r", help="AWS region"),
 ):
     """View error logs from all applications."""
-    session = get_aws_session(region)
+    session = get_aws_session_from_credentials(region)
     logs_client = session.client("logs")
 
     config = load_config()

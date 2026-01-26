@@ -1,6 +1,5 @@
 """Git and CI/CD commands."""
 
-import subprocess
 import typer
 import requests
 from typing import Optional
@@ -17,7 +16,9 @@ from devops_cli.utils.output import (
     header,
     create_table,
 )
+from devops_cli.utils.git_helpers import run_git
 from devops_cli.utils.github_helper import (
+    get_github_headers,
     get_latest_commit,
     get_workflow_runs,
     get_workflow_jobs,
@@ -29,26 +30,6 @@ from devops_cli.utils.github_helper import (
 
 app = typer.Typer(help="Git & CI/CD operations")
 console = Console()
-
-
-def run_git(args: list[str], capture: bool = True) -> tuple[bool, str]:
-    """Run a git command and return success status and output."""
-    try:
-        result = subprocess.run(
-            ["git"] + args, capture_output=capture, text=True, check=False
-        )
-        output = result.stdout + result.stderr
-        return result.returncode == 0, output.strip()
-    except FileNotFoundError:
-        return False, "Git is not installed"
-
-
-def get_github_headers(token: str) -> dict:
-    """Get GitHub API headers."""
-    return {
-        "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json",
-    }
 
 
 def resolve_repo(

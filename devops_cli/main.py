@@ -1,4 +1,12 @@
-"""Main entry point for the DevOps CLI."""
+"""Main entry point for the DevOps CLI.
+
+Uses lazy loading to improve startup performance - command modules are only
+imported when their commands are actually invoked.
+"""
+
+import sys
+import importlib
+from typing import Optional, Callable
 
 import typer
 from rich.console import Console
@@ -7,26 +15,68 @@ from rich.table import Table
 from rich import box
 
 from devops_cli import __version__
-from devops_cli.commands import (
-    git,
-    health,
-    logs,
-    deploy,
-    ssh,
-    secrets,
-    aws_logs,
-    admin,
-    app as app_cmd,
-    auth,
-    monitor,
-    dashboard,
-    website,
-    security,
-)
-from devops_cli.config.settings import init_config
-from devops_cli.utils.output import success, info
-from devops_cli.utils.config_validator import ConfigValidator
 
+# Command module registry: name -> (module_path, help_text)
+COMMAND_MODULES = {
+    "git": ("devops_cli.commands.git", "Git & CI/CD operations"),
+    "health": ("devops_cli.commands.health", "Health checks for services"),
+    "logs": ("devops_cli.commands.logs", "View and tail logs"),
+    "deploy": ("devops_cli.commands.deploy", "Deployment commands"),
+    "ssh": ("devops_cli.commands.ssh", "SSH and server management"),
+    "secrets": ("devops_cli.commands.secrets", "Secrets and env management"),
+    "aws": ("devops_cli.commands.aws_logs", "AWS logs (CloudWatch)"),
+    "admin": (
+        "devops_cli.commands.admin",
+        "Admin: Configure apps, servers, AWS (for Cloud Engineers)",
+    ),
+    "app": (
+        "devops_cli.commands.app",
+        "Applications: View logs, health for configured apps",
+    ),
+    "website": (
+        "devops_cli.commands.website",
+        "Websites: View info and health for configured websites",
+    ),
+    "auth": (
+        "devops_cli.commands.auth",
+        "Authentication: Login/logout for CLI access",
+    ),
+    "monitor": (
+        "devops_cli.commands.monitor",
+        "Real-time monitoring dashboard for websites, apps, servers",
+    ),
+    "dashboard": (
+        "devops_cli.commands.dashboard",
+        "Web Dashboard - Beautiful browser-based monitoring UI",
+    ),
+    "security": (
+        "devops_cli.commands.security",
+        "Security: Local codebase scanning",
+    ),
+}
+
+# Module cache to avoid re-importing
+_module_cache: dict = {}
+
+
+def _get_module(module_path: str):
+    """Get a module, loading it lazily if needed."""
+    if module_path not in _module_cache:
+        _module_cache[module_path] = importlib.import_module(module_path)
+    return _module_cache[module_path]
+
+
+def _get_invoked_command() -> Optional[str]:
+    """Get the command being invoked from sys.argv."""
+    if len(sys.argv) > 1:
+        cmd = sys.argv[1]
+        # Skip options
+        if not cmd.startswith("-"):
+            return cmd
+    return None
+
+
+# Create main app
 app = typer.Typer(
     name="devops",
     help="DevOps CLI - Powerful tools for your startup workflows",
@@ -36,43 +86,52 @@ app = typer.Typer(
 
 console = Console()
 
-# Register command groups
-app.add_typer(git.app, name="git", help="Git & CI/CD operations")
-app.add_typer(health.app, name="health", help="Health checks for services")
-app.add_typer(logs.app, name="logs", help="View and tail logs")
-app.add_typer(deploy.app, name="deploy", help="Deployment commands")
-app.add_typer(ssh.app, name="ssh", help="SSH and server management")
-app.add_typer(secrets.app, name="secrets", help="Secrets and env management")
-app.add_typer(aws_logs.app, name="aws", help="AWS logs (CloudWatch)")
-app.add_typer(
-    admin.app,
-    name="admin",
-    help="Admin: Configure apps, servers, AWS (for Cloud Engineers)",
-)
-app.add_typer(
-    app_cmd.app, name="app", help="Applications: View logs, health for configured apps"
-)
-app.add_typer(
-    website.app,
-    name="website",
-    help="Websites: View info and health for configured websites",
-)
-app.add_typer(auth.app, name="auth", help="Authentication: Login/logout for CLI access")
-app.add_typer(
-    monitor.app,
-    name="monitor",
-    help="Real-time monitoring dashboard for websites, apps, servers",
-)
-app.add_typer(
-    dashboard.app,
-    name="dashboard",
-    help="Web Dashboard - Beautiful browser-based monitoring UI",
-)
-app.add_typer(
-    security.app,
-    name="security",
-    help="Security: Local codebase scanning",
-)
+
+# Built-in commands that don't need module loading
+BUILTIN_COMMANDS = {"version", "init", "status", "doctor", "--help", "-h", "--version"}
+
+
+def _register_commands():
+    """Register command modules - load only what's needed."""
+    invoked_cmd = _get_invoked_command()
+
+    # If invoking a built-in command, just register stubs for subcommands
+    # This makes built-in commands very fast
+    if invoked_cmd in BUILTIN_COMMANDS or invoked_cmd is None:
+        # Check if we need help display
+        needs_full_help = invoked_cmd is None or "--help" in sys.argv or "-h" in sys.argv
+
+        if needs_full_help:
+            # For help display, load all modules
+            for name, (module_path, help_text) in COMMAND_MODULES.items():
+                module = _get_module(module_path)
+                app.add_typer(module.app, name=name, help=help_text)
+        else:
+            # For built-in commands, register stubs only
+            for name, (mod_path, mod_help) in COMMAND_MODULES.items():
+                stub = typer.Typer(help=mod_help)
+                app.add_typer(stub, name=name, help=mod_help)
+
+    # If a specific command module is being invoked, only load that module
+    elif invoked_cmd in COMMAND_MODULES:
+        module_path, help_text = COMMAND_MODULES[invoked_cmd]
+        module = _get_module(module_path)
+        app.add_typer(module.app, name=invoked_cmd, help=help_text)
+
+        # Register other commands as stubs (for help text display)
+        for name, (mod_path, mod_help) in COMMAND_MODULES.items():
+            if name != invoked_cmd:
+                stub = typer.Typer(help=mod_help)
+                app.add_typer(stub, name=name, help=mod_help)
+    else:
+        # Unknown command - load all modules to let Typer handle the error
+        for name, (module_path, help_text) in COMMAND_MODULES.items():
+            module = _get_module(module_path)
+            app.add_typer(module.app, name=name, help=help_text)
+
+
+# Register commands with lazy loading
+_register_commands()
 
 
 @app.command()
@@ -84,6 +143,9 @@ def version():
 @app.command()
 def init():
     """Initialize CLI configuration."""
+    from devops_cli.config.settings import init_config
+    from devops_cli.utils.output import success, info
+
     config_path = init_config()
     success(f"Configuration initialized at: {config_path}")
     info("Edit this file to configure your servers, services, and credentials.")
@@ -92,6 +154,8 @@ def init():
 @app.command()
 def status():
     """Show quick status overview of all systems."""
+    from devops_cli.utils.config_validator import ConfigValidator
+
     summary = ConfigValidator.get_config_summary()
     counts = summary["counts"]
 
@@ -218,7 +282,8 @@ def status():
             )
     except Exception:
         console.print("[dim]Auth status unavailable[/dim]")
-        # Quick help
+
+    # Quick help
     console.print()
     console.print("[bold]Quick Commands:[/bold]")
     console.print("  [cyan]devops app list[/cyan]       - List available applications")
@@ -240,11 +305,9 @@ def doctor():
     console.print()
 
     issues = []
-    warnings = []
+    warnings_list = []
 
     # Check Python version
-    import sys
-
     py_version = (
         f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
     )
@@ -278,7 +341,7 @@ def doctor():
         console.print(f"[green]✓[/green] Config directory exists: {config_dir}")
     else:
         console.print("[yellow]![/yellow] Config directory not found")
-        warnings.append("Run 'devops admin init' to initialize")
+        warnings_list.append("Run 'devops admin init' to initialize")
 
     # Check auth directory permissions
     auth_dir = config_dir / "auth"
@@ -290,7 +353,7 @@ def doctor():
             console.print("[green]✓[/green] Auth directory permissions secure")
         else:
             console.print("[yellow]![/yellow] Auth directory permissions too open")
-            warnings.append("Run: chmod 700 ~/.devops-cli/auth")
+            warnings_list.append("Run: chmod 700 ~/.devops-cli/auth")
 
     # Check Git
     import subprocess
@@ -327,10 +390,10 @@ def doctor():
                 box=box.ROUNDED,
             )
         )
-    elif warnings:
+    elif warnings_list:
         console.print(
             Panel(
-                "\n".join([f"[yellow]•[/yellow] {w}" for w in warnings]),
+                "\n".join([f"[yellow]•[/yellow] {w}" for w in warnings_list]),
                 title="[bold yellow]Warnings[/bold yellow]",
                 border_style="yellow",
                 box=box.ROUNDED,

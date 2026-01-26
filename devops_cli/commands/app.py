@@ -11,7 +11,9 @@ Usage:
     devops app info <app-name>   # Show app details
 """
 
+import re
 import time
+from datetime import datetime
 from typing import Optional
 
 import typer
@@ -56,10 +58,6 @@ def get_app_config(app_name: str) -> dict | None:
     return config.get("apps", {}).get(app_name)
 
 
-# get_aws_session now imported from devops_cli.utils.aws_helpers
-
-# Removed duplicate function - now using utility (kept for reference):
-# def get_aws_session(role_name: str = None, region: str = None):
 # ==================== List Apps ====================
 
 

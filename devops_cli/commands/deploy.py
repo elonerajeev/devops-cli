@@ -1,6 +1,5 @@
 """Deployment commands."""
 
-import subprocess
 from typing import Optional
 
 import typer
@@ -18,28 +17,11 @@ from devops_cli.utils.output import (
     create_table,
     status_badge,
 )
+from devops_cli.utils.git_helpers import run_git
+from devops_cli.utils.github_helper import get_github_headers
 
 app = typer.Typer(help="Deployment commands")
 console = Console()
-
-
-def run_git(args: list[str]) -> tuple[bool, str]:
-    """Run a git command."""
-    try:
-        result = subprocess.run(
-            ["git"] + args, capture_output=True, text=True, check=False
-        )
-        return result.returncode == 0, (result.stdout + result.stderr).strip()
-    except FileNotFoundError:
-        return False, "Git not installed"
-
-
-def get_github_headers(token: str) -> dict:
-    """Get GitHub API headers."""
-    return {
-        "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json",
-    }
 
 
 @app.command("status")
